@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "constellation-server",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["launch.py", "--headless"],
+      "port": 8420
+    }
+  ]
+}
