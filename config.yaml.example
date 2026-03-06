@@ -1,0 +1,26 @@
+# Constellation Configuration
+# Created automatically on first run. Gitignored.
+
+# Data source
+source:
+  path: ""  # Set during first-run setup
+  provider: "claude"
+
+# Embedding
+embedding:
+  model: "all-MiniLM-L6-v2"
+
+# Server
+server:
+  port: 8420
+  host: "127.0.0.1"
+
+# Visualization defaults
+display:
+  auto_rotate: true
+  colorblind_mode: false
+  layout: "3d-force"  # "3d-force", "2d-flat", "by-cluster", "temporal-helix"
+
+# MCP server
+mcp:
+  enabled: true

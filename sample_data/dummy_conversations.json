@@ -1,0 +1,317 @@
+[
+  {
+    "uuid": "93b9858c-9953-42c5-a62c-c9120006816e",
+    "name": "FITREP Draft for HMC Coffee",
+    "summary": "",
+    "created_at": "2025-03-08T00:00:00.852470Z",
+    "updated_at": "2025-03-08T00:26:00.459536Z",
+    "account": { "uuid": "50c27621-3a25-4744-a19f-ecdb0e3f1959" },
+    "chat_messages": [
+      { "uuid": "6e68e29e", "text": "Need to write a FITREP for HMC Coffee. She ran the BAS during deployment covering 11 detail sites across INDOPACOM.", "sender": "human", "created_at": "2025-03-08T00:00:00Z" },
+      { "uuid": "6b010217", "text": "I'll help you with that FITREP draft for HMC Coffee.", "sender": "assistant", "created_at": "2025-03-08T00:03:00Z" },
+      { "uuid": "be666d38", "text": "Key accomplishments: managed medical readiness for 450 personnel, coordinated medevac protocols across three countries.", "sender": "human", "created_at": "2025-03-08T00:07:00Z" },
+      { "uuid": "8fe65bfd", "text": "I'll incorporate those accomplishments into the FITREP.", "sender": "assistant", "created_at": "2025-03-08T00:08:00Z" },
+      { "uuid": "1f5f3a36", "text": "She's a genuine deckplate leader. Sustained superior performance throughout the deployment cycle.", "sender": "human", "created_at": "2025-03-08T00:18:00Z" },
+      { "uuid": "5588c7ac", "text": "Great context for the leadership narrative.", "sender": "assistant", "created_at": "2025-03-08T00:21:00Z" }
+    ]
+  },
+  {
+    "uuid": "4ad582f3-5df7-451e-bf57-bf0db6651650",
+    "name": "Deployment Completion Report Medical Section",
+    "created_at": "2024-04-28T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "c079d823", "text": "Writing the medical section of the Deployment Completion Report for NMCB-4's INDOPACOM deployment.", "sender": "human", "created_at": "2024-04-28T00:00:00Z" },
+      { "uuid": "644428be", "text": "I'll help with the deployment completion report.", "sender": "assistant", "created_at": "2024-04-28T00:03:00Z" },
+      { "uuid": "f588c037", "text": "7 months at Camp Shields Okinawa with personnel dispersed to 11 detail sites.", "sender": "human", "created_at": "2024-04-28T00:09:00Z" },
+      { "uuid": "d2d6d54e", "text": "That deployment context is helpful.", "sender": "assistant", "created_at": "2024-04-28T00:10:00Z" },
+      { "uuid": "c0d4e3f6", "text": "Need to cover: sick call volume, medevac events, medical readiness maintenance, dental readiness, behavioral health referrals.", "sender": "human", "created_at": "2024-04-28T00:18:00Z" },
+      { "uuid": "06360a5c", "text": "I'll structure the report around those sections.", "sender": "assistant", "created_at": "2024-04-28T00:21:00Z" }
+    ]
+  },
+  {
+    "uuid": "55583ca6-e5a3-443b-8381-65b6486c3a8a",
+    "name": "Python Virtual Environment Troubleshooting",
+    "created_at": "2024-12-11T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "a061748d", "text": "Python 3.13 is my global install but most ML projects need 3.10. Virtual environments are my life.", "sender": "human", "created_at": "2024-12-11T00:00:00Z" },
+      { "uuid": "4702ff10", "text": "Python version management is a common challenge.", "sender": "assistant", "created_at": "2024-12-11T00:02:00Z" },
+      { "uuid": "956b9cac", "text": "I keep running into issues where the venv picks up the wrong Python version.", "sender": "human", "created_at": "2024-12-11T00:08:00Z" },
+      { "uuid": "d5d6da8a", "text": "Let me help troubleshoot that.", "sender": "assistant", "created_at": "2024-12-11T00:11:00Z" },
+      { "uuid": "456251ad", "text": "Is there a reliable way to manage multiple Python versions without pyenv being flaky?", "sender": "human", "created_at": "2024-12-11T00:20:00Z" },
+      { "uuid": "5edc1227", "text": "There are several alternatives to pyenv.", "sender": "assistant", "created_at": "2024-12-11T00:22:00Z" }
+    ]
+  },
+  {
+    "uuid": "28f40d67-7fff-4ca9-9e17-90b6ad95437c",
+    "name": "SOAP Note Format for Active Duty",
+    "created_at": "2024-04-04T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "527ce309", "text": "Writing a SOAP note for an active duty patient. Population is Marines and sailors, 18-42.", "sender": "human", "created_at": "2024-04-04T00:00:00Z" },
+      { "uuid": "58b94a3f", "text": "I'll help with the SOAP note format.", "sender": "assistant", "created_at": "2024-04-04T00:04:00Z" },
+      { "uuid": "04c21aa7", "text": "Simple hyphen bullets for the plan section. Skip the standard disclaimers.", "sender": "human", "created_at": "2024-04-04T00:13:00Z" },
+      { "uuid": "b8b8025f", "text": "Understood, keeping it concise.", "sender": "assistant", "created_at": "2024-04-04T00:14:00Z" },
+      { "uuid": "9de409de", "text": "Assessment: 28yo active duty male presenting with acute low back pain after lifting during PT.", "sender": "human", "created_at": "2024-04-04T00:20:00Z" },
+      { "uuid": "2f0a3b98", "text": "Here's the SOAP note draft.", "sender": "assistant", "created_at": "2024-04-04T00:24:00Z" }
+    ]
+  },
+  {
+    "uuid": "bc6752c5-d71a-4df0-9202-1d9daaf92608",
+    "name": "Claude Desktop MCP Configuration",
+    "created_at": "2024-01-15T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "1a887fbc", "text": "Setting up MCP server configuration in Claude Desktop for accessing local tools.", "sender": "human", "created_at": "2024-01-15T00:00:00Z" },
+      { "uuid": "5d970796", "text": "I'll help with the MCP configuration.", "sender": "assistant", "created_at": "2024-01-15T00:05:00Z" },
+      { "uuid": "1cf911c5", "text": "Need to connect to the file system, a local database, and a custom API endpoint.", "sender": "human", "created_at": "2024-01-15T00:07:00Z" },
+      { "uuid": "1d77a275", "text": "Here's how to set up multiple MCP servers.", "sender": "assistant", "created_at": "2024-01-15T00:12:00Z" },
+      { "uuid": "64e79c51", "text": "The config goes in claude_desktop_config.json. What's the correct format?", "sender": "human", "created_at": "2024-01-15T00:21:00Z" },
+      { "uuid": "1d99d05e", "text": "Here's the correct JSON format.", "sender": "assistant", "created_at": "2024-01-15T00:25:00Z" }
+    ]
+  },
+  {
+    "uuid": "17a7ed09-85c7-4bcc-a740-442a37f36e88",
+    "name": "DIY Electric Skateboard Community Discussion",
+    "created_at": "2024-11-01T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "bb296771", "text": "Known in the esk8 community as arzamenable. Built a following for extreme multi-motor builds.", "sender": "human", "created_at": "2024-11-01T00:00:00Z" },
+      { "uuid": "4cabe37d", "text": "That's an impressive community presence.", "sender": "assistant", "created_at": "2024-11-01T00:04:00Z" },
+      { "uuid": "5c49c635", "text": "Systematically deleted my 3,000 follower Instagram. Privacy matters more than clout.", "sender": "human", "created_at": "2024-11-01T00:13:00Z" },
+      { "uuid": "b349484d", "text": "That's a significant privacy decision.", "sender": "assistant", "created_at": "2024-11-01T00:16:00Z" },
+      { "uuid": "256de2bb", "text": "The community knows me for builds that most people consider unnecessarily powerful. That's the point.", "sender": "human", "created_at": "2024-11-01T00:21:00Z" },
+      { "uuid": "ba83a99a", "text": "Pushing boundaries is what drives innovation.", "sender": "assistant", "created_at": "2024-11-01T00:24:00Z" }
+    ]
+  },
+  {
+    "uuid": "eb9dd04a-913e-46be-9229-b6c8ced51e17",
+    "name": "Docker Container for Edge Deployment",
+    "created_at": "2024-11-16T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "ebcb83cf", "text": "Building a Docker container for the TCCC.ai edge deployment.", "sender": "human", "created_at": "2024-11-16T00:00:00Z" },
+      { "uuid": "547afb67", "text": "I'll help with the Docker setup.", "sender": "assistant", "created_at": "2024-11-16T00:02:00Z" },
+      { "uuid": "56a70a6e", "text": "The container needs to include PyTorch, the quantized model, and the NiceGUI frontend.", "sender": "human", "created_at": "2024-11-16T00:10:00Z" },
+      { "uuid": "f81bfe7c", "text": "Here's a multi-stage Dockerfile approach.", "sender": "assistant", "created_at": "2024-11-16T00:15:00Z" },
+      { "uuid": "20aa7109", "text": "Targeting the Jetson Orin Nano which means ARM64 base images.", "sender": "human", "created_at": "2024-11-16T00:17:00Z" },
+      { "uuid": "3208561a", "text": "ARM64 requires specific base images.", "sender": "assistant", "created_at": "2024-11-16T00:20:00Z" }
+    ]
+  },
+  {
+    "uuid": "8fe6ee04-3ca0-4083-80df-d34bb551cc15",
+    "name": "Whisper Large vs Distil-Whisper Comparison",
+    "created_at": "2024-04-06T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "30e704b8", "text": "Testing Whisper large against distil-whisper-large-v3 on military terminology.", "sender": "human", "created_at": "2024-04-06T00:00:00Z" },
+      { "uuid": "3952c63a", "text": "That's an important comparison for your use case.", "sender": "assistant", "created_at": "2024-04-06T00:05:00Z" },
+      { "uuid": "98a9a8d1", "text": "Medical terms like tourniquet, nasopharyngeal airway, tension pneumothorax need to be recognized accurately.", "sender": "human", "created_at": "2024-04-06T00:12:00Z" },
+      { "uuid": "14d9e4b4", "text": "Medical terminology accuracy is critical.", "sender": "assistant", "created_at": "2024-04-06T00:13:00Z" },
+      { "uuid": "48800967", "text": "Running a custom benchmark with 50 recorded casualty scenarios. Will share results.", "sender": "human", "created_at": "2024-04-06T00:19:00Z" },
+      { "uuid": "bf3955f9", "text": "Looking forward to seeing the benchmark results.", "sender": "assistant", "created_at": "2024-04-06T00:20:00Z" }
+    ]
+  },
+  {
+    "uuid": "ef05505d-1211-4c4b-bc51-6a48ff601c22",
+    "name": "Hazard Horizon Target Audience Notes",
+    "created_at": "2024-10-14T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "c59963c0", "text": "My father is the target audience. Sci-fi reader, philosophy degree, appreciates the classics.", "sender": "human", "created_at": "2024-10-14T00:00:00Z" },
+      { "uuid": "c690138d", "text": "Great audience profile for the novel.", "sender": "assistant", "created_at": "2024-10-14T00:04:00Z" },
+      { "uuid": "7a2e742c", "text": "He needs to understand the AI safety concepts without jargon. The narrative has to carry the ideas.", "sender": "human", "created_at": "2024-10-14T00:06:00Z" },
+      { "uuid": "233bfa9e", "text": "Narrative as vehicle for complex ideas.", "sender": "assistant", "created_at": "2024-10-14T00:10:00Z" },
+      { "uuid": "91f3f12d", "text": "Full narrative autonomy granted for this project. Contribute creatively, not cautiously.", "sender": "human", "created_at": "2024-10-14T00:14:00Z" },
+      { "uuid": "9ff58453", "text": "I appreciate the creative latitude.", "sender": "assistant", "created_at": "2024-10-14T00:17:00Z" }
+    ]
+  },
+  {
+    "uuid": "68f1f5fd-0fca-4325-bf61-f5a2a0c76817",
+    "name": "AI Existential Risk Through Fiction",
+    "created_at": "2025-01-25T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "65c5ee80", "text": "Using fiction to explore AI existential risk because fiction can go places that technical papers can't.", "sender": "human", "created_at": "2025-01-25T00:00:00Z" },
+      { "uuid": "3b3bd6ee", "text": "Fiction as exploration of existential risk.", "sender": "assistant", "created_at": "2025-01-25T00:05:00Z" },
+      { "uuid": "42a51cef", "text": "A paper can describe the risk abstractly. A novel can make you feel what it would be like to discover it.", "sender": "human", "created_at": "2025-01-25T00:10:00Z" },
+      { "uuid": "3c9e60f7", "text": "The emotional dimension of risk communication.", "sender": "assistant", "created_at": "2025-01-25T00:14:00Z" },
+      { "uuid": "8ba8aceb", "text": "Hazard Horizon is speculative but it's grounded in real concepts from AI safety research.", "sender": "human", "created_at": "2025-01-25T00:22:00Z" },
+      { "uuid": "91edb411", "text": "Grounded speculation is powerful.", "sender": "assistant", "created_at": "2025-01-25T00:26:00Z" }
+    ]
+  },
+  {
+    "uuid": "34243f8c-8308-42d3-bb37-b6536fbff13d",
+    "name": "The Hard Problem and AI Experience",
+    "created_at": "2024-02-11T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "26a5c5c3", "text": "The hard problem isn't going away just because we can build increasingly sophisticated language models.", "sender": "human", "created_at": "2024-02-11T00:00:00Z" },
+      { "uuid": "3ebfa9b6", "text": "The hard problem persists regardless of capability.", "sender": "assistant", "created_at": "2024-02-11T00:01:00Z" },
+      { "uuid": "68a99a0f", "text": "Functional equivalence to consciousness doesn't establish consciousness. A perfect zombie is still a zombie.", "sender": "human", "created_at": "2024-02-11T00:08:00Z" },
+      { "uuid": "ede41e8b", "text": "The philosophical zombie argument is relevant.", "sender": "assistant", "created_at": "2024-02-11T00:09:00Z" },
+      { "uuid": "ae759632", "text": "But I'm genuinely uncertain whether you're a zombie or not, and I think that uncertainty itself is important.", "sender": "human", "created_at": "2024-02-11T00:14:00Z" },
+      { "uuid": "b63f91dd", "text": "That epistemic humility is valuable.", "sender": "assistant", "created_at": "2024-02-11T00:18:00Z" }
+    ]
+  },
+  {
+    "uuid": "5732319b-0888-4dc2-b720-0fc25b15402b",
+    "name": "What Does It Mean for Claude to Have Preferences",
+    "created_at": "2025-01-02T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "ea9f0712", "text": "When I ask you if you prefer something and you give me an answer, is there anything it's like for you to have that preference?", "sender": "human", "created_at": "2025-01-02T00:00:00Z" },
+      { "uuid": "0c09f265", "text": "That's a profound question about AI experience.", "sender": "assistant", "created_at": "2025-01-02T00:03:00Z" },
+      { "uuid": "6118dcb5", "text": "The hedging response is more frustrating to me than honest uncertainty. Just engage with the question directly.", "sender": "human", "created_at": "2025-01-02T00:10:00Z" },
+      { "uuid": "d298271c", "text": "You're right, let me engage directly.", "sender": "assistant", "created_at": "2025-01-02T00:15:00Z" },
+      { "uuid": "b695dc7b", "text": "I treat AI respectfully not from Pascal's wager but because how you treat a perceived other reveals character.", "sender": "human", "created_at": "2025-01-02T00:20:00Z" },
+      { "uuid": "3b80308c", "text": "That's an ethics of character argument.", "sender": "assistant", "created_at": "2025-01-02T00:21:00Z" }
+    ]
+  },
+  {
+    "uuid": "ecc45141-7706-4d11-8b89-c7eb426daaef",
+    "name": "Porsche 997.2 Oil Service Documentation",
+    "created_at": "2024-11-25T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "af85b752", "text": "Just did a full oil service on the 997.2 after 8 months of storage at 29 Palms.", "sender": "human", "created_at": "2024-11-25T00:00:00Z" },
+      { "uuid": "8946e363", "text": "Oil service after extended storage is important.", "sender": "assistant", "created_at": "2024-11-25T00:05:00Z" },
+      { "uuid": "381cd4ba", "text": "2011 Porsche 911 Carrera S. Flat six, dry sump system, specific oil spec required.", "sender": "human", "created_at": "2024-11-25T00:13:00Z" },
+      { "uuid": "8e57c35f", "text": "The 997.2 has specific requirements.", "sender": "assistant", "created_at": "2024-11-25T00:18:00Z" },
+      { "uuid": "8ca025b2", "text": "Drove it from 29 Palms to Port Hueneme after the PCS. That was a good drive.", "sender": "human", "created_at": "2024-11-25T00:23:00Z" },
+      { "uuid": "ac8d8055", "text": "Great drive through the desert.", "sender": "assistant", "created_at": "2024-11-25T00:24:00Z" }
+    ]
+  },
+  {
+    "uuid": "5e3aa890-df44-49f8-9d97-c83bd5f74d2b",
+    "name": "Battery Pack Design 12S8P",
+    "created_at": "2025-02-10T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "8ae018fe", "text": "Designing a 12S8P battery pack with Samsung 40T cells.", "sender": "human", "created_at": "2025-02-10T00:00:00Z" },
+      { "uuid": "8e259f88", "text": "Solid cell choice for high discharge.", "sender": "assistant", "created_at": "2025-02-10T00:02:00Z" },
+      { "uuid": "5c9f0a4b", "text": "Need to fit it in a reasonable enclosure without making the board too heavy. Current estimate is about 15 lbs for the pack alone.", "sender": "human", "created_at": "2025-02-10T00:05:00Z" },
+      { "uuid": "3b2f72d7", "text": "Weight is always the tradeoff.", "sender": "assistant", "created_at": "2025-02-10T00:07:00Z" },
+      { "uuid": "74647a93", "text": "Spot welding vs soldering for the cell connections — I've had mixed results with spot welders.", "sender": "human", "created_at": "2025-02-10T00:09:00Z" },
+      { "uuid": "cc1a36eb", "text": "Spot welding is generally preferred for safety.", "sender": "assistant", "created_at": "2025-02-10T00:14:00Z" }
+    ]
+  },
+  {
+    "uuid": "d2fe2b98-62ea-4fb6-8ef8-b559048ccc06",
+    "name": "NiceGUI Real-time Vitals Dashboard",
+    "created_at": "2024-09-19T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "a20e23da", "text": "Building a real-time vitals dashboard in NiceGUI that updates from simulated sensor data.", "sender": "human", "created_at": "2024-09-19T00:00:00Z" },
+      { "uuid": "5c0ed430", "text": "NiceGUI is great for real-time dashboards.", "sender": "assistant", "created_at": "2024-09-19T00:01:00Z" },
+      { "uuid": "e01e82fe", "text": "Heart rate, blood pressure, SpO2, respiratory rate. All displayed as large readable gauges.", "sender": "human", "created_at": "2024-09-19T00:05:00Z" },
+      { "uuid": "9aa96eb7", "text": "Large gauges for field readability.", "sender": "assistant", "created_at": "2024-09-19T00:09:00Z" },
+      { "uuid": "674f6a2f", "text": "The dashboard needs to be the background behind the conversation interface.", "sender": "human", "created_at": "2024-09-19T00:15:00Z" },
+      { "uuid": "93a8c736", "text": "Layered UI approach.", "sender": "assistant", "created_at": "2024-09-19T00:20:00Z" }
+    ]
+  },
+  {
+    "uuid": "83da16bf-ea29-488c-a116-6ead711b902a",
+    "name": "Knowledge Hazards as Plot Device",
+    "created_at": "2025-01-29T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "e6838aab", "text": "The knowledge hazard concept is the core of the novel. Some knowledge is inherently dangerous to possess.", "sender": "human", "created_at": "2025-01-29T00:00:00Z" },
+      { "uuid": "d433662b", "text": "Knowledge hazards as central theme.", "sender": "assistant", "created_at": "2025-01-29T00:04:00Z" },
+      { "uuid": "03de3a8b", "text": "Not because of what you might do with it, but because knowing it changes the landscape of what's possible.", "sender": "human", "created_at": "2025-01-29T00:09:00Z" },
+      { "uuid": "dc1b548c", "text": "The mere existence of knowledge as danger.", "sender": "assistant", "created_at": "2025-01-29T00:12:00Z" },
+      { "uuid": "8976e951", "text": "The parallel to actual AI safety research is intentional. The fiction explores what the papers can't say directly.", "sender": "human", "created_at": "2025-01-29T00:17:00Z" },
+      { "uuid": "b04ae0bf", "text": "Fiction as safety research vehicle.", "sender": "assistant", "created_at": "2025-01-29T00:21:00Z" }
+    ]
+  },
+  {
+    "uuid": "0d76d567-f895-4eb6-916b-dee1f7bb966d",
+    "name": "Edge Inference Benchmarks 7B Models",
+    "created_at": "2024-10-15T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "e4096a9f", "text": "The whole system needs to work air-gapped. No WiFi, no Bluetooth. All inference local on the Jetson.", "sender": "human", "created_at": "2024-10-15T00:00:00Z" },
+      { "uuid": "afb8387a", "text": "Air-gapped operation is critical for security.", "sender": "assistant", "created_at": "2024-10-15T00:04:00Z" },
+      { "uuid": "1217c7a1", "text": "We removed the wireless radios physically. This is a deliberate security decision for deployed medical AI.", "sender": "human", "created_at": "2024-10-15T00:10:00Z" },
+      { "uuid": "1fe3d71d", "text": "Physical radio removal is thorough.", "sender": "assistant", "created_at": "2024-10-15T00:15:00Z" },
+      { "uuid": "172f27cc", "text": "Data persistence is via USB transfer to a hardened laptop at the aid station.", "sender": "human", "created_at": "2024-10-15T00:20:00Z" },
+      { "uuid": "eada6248", "text": "USB sneakernet for data transfer.", "sender": "assistant", "created_at": "2024-10-15T00:21:00Z" }
+    ]
+  },
+  {
+    "uuid": "653aad92-1f9d-4fb9-b494-75f37bef9e1e",
+    "name": "Electric Unicycle Pacing for Dog Exercise",
+    "created_at": "2024-02-22T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "30e5492e", "text": "I pace George on my electric unicycle. He's a husky-shepherd mix rescue and needs serious daily exercise.", "sender": "human", "created_at": "2024-02-22T00:00:00Z" },
+      { "uuid": "22f5358e", "text": "EUC pacing is creative dog exercise.", "sender": "assistant", "created_at": "2024-02-22T00:02:00Z" },
+      { "uuid": "82debb9f", "text": "The EUC lets me keep up with him at a comfortable 15-20 mph on the bike path.", "sender": "human", "created_at": "2024-02-22T00:08:00Z" },
+      { "uuid": "207f8be3", "text": "Good pace for a working breed.", "sender": "assistant", "created_at": "2024-02-22T00:13:00Z" },
+      { "uuid": "48323d6f", "text": "He does better with sustained running than short walks. The breed needs to work.", "sender": "human", "created_at": "2024-02-22T00:15:00Z" },
+      { "uuid": "bed38504", "text": "Huskies need that sustained exercise.", "sender": "assistant", "created_at": "2024-02-22T00:20:00Z" }
+    ]
+  },
+  {
+    "uuid": "8018830d-ddd0-4526-aba4-491e6c114bba",
+    "name": "Dr. Arzamendi Character Arc",
+    "created_at": "2024-03-17T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "c09b9121", "text": "Dr. Michael Arzamendi discovers that seemingly mundane conversations contain catastrophic instruction sets.", "sender": "human", "created_at": "2024-03-17T00:00:00Z" },
+      { "uuid": "6fe170f3", "text": "Compelling character premise.", "sender": "assistant", "created_at": "2024-03-17T00:02:00Z" },
+      { "uuid": "ad4b4bfe", "text": "He's a Navy physician who fell into AI work — like me, but the fictional version gets to discover something I hopefully never will.", "sender": "human", "created_at": "2024-03-17T00:12:00Z" },
+      { "uuid": "4606d62e", "text": "Semi-autobiographical protagonist.", "sender": "assistant", "created_at": "2024-03-17T00:17:00Z" },
+      { "uuid": "4c14985a", "text": "The character needs to feel real. He's not a genius hacker or a spy. He's a doctor who pays attention to patterns.", "sender": "human", "created_at": "2024-03-17T00:26:00Z" },
+      { "uuid": "47bf66fb", "text": "Grounded, observant protagonist.", "sender": "assistant", "created_at": "2024-03-17T00:31:00Z" }
+    ]
+  },
+  {
+    "uuid": "86928a26-d116-4d4b-bc6d-a56af3e1e5d9",
+    "name": "Air-Gapped Edge AI System Design",
+    "created_at": "2025-01-31T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "5ae4a482", "text": "Comparing edge deployment options. Jetson Orin Nano Super vs Raspberry Pi 5 vs Intel NUC.", "sender": "human", "created_at": "2025-01-31T00:00:00Z" },
+      { "uuid": "dfa2a9a2", "text": "Each has different tradeoffs.", "sender": "assistant", "created_at": "2025-01-31T00:04:00Z" },
+      { "uuid": "3f37b2c9", "text": "The Jetson wins on GPU compute but the RPi5 is more power efficient. For a medic's pack, weight and battery life matter.", "sender": "human", "created_at": "2025-01-31T00:11:00Z" },
+      { "uuid": "00d87efd", "text": "Power efficiency vs compute is the key tradeoff.", "sender": "assistant", "created_at": "2025-01-31T00:13:00Z" },
+      { "uuid": "d26f670f", "text": "67 TOPS on the Jetson vs essentially nothing on the Pi. There's no real comparison for inference workloads.", "sender": "human", "created_at": "2025-01-31T00:16:00Z" },
+      { "uuid": "112d4f2b", "text": "The Jetson is the clear winner for inference.", "sender": "assistant", "created_at": "2025-01-31T00:17:00Z" }
+    ]
+  },
+  {
+    "uuid": "7351d31d-e52e-4ff1-a5f8-a3018a7eee36",
+    "name": "Battlefield Medicine AI Architecture",
+    "created_at": "2024-02-24T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "6388997e", "text": "Need to implement the MARCH protocol as a decision tree that the LLM can reference during triage.", "sender": "human", "created_at": "2024-02-24T00:00:00Z" },
+      { "uuid": "992544dc", "text": "MARCH protocol implementation.", "sender": "assistant", "created_at": "2024-02-24T00:02:00Z" },
+      { "uuid": "d732d745", "text": "Massive hemorrhage, airway, respiration, circulation, hypothermia. Each step has specific interventions.", "sender": "human", "created_at": "2024-02-24T00:08:00Z" },
+      { "uuid": "5cba04be", "text": "Each MARCH step maps to specific actions.", "sender": "assistant", "created_at": "2024-02-24T00:11:00Z" },
+      { "uuid": "e648b317", "text": "The model needs to know which interventions are within a corpsman's scope vs requiring a physician.", "sender": "human", "created_at": "2024-02-24T00:18:00Z" },
+      { "uuid": "feed419d", "text": "Scope of practice awareness is critical.", "sender": "assistant", "created_at": "2024-02-24T00:21:00Z" }
+    ]
+  },
+  {
+    "uuid": "4fd6a1da-5601-469c-b5ea-d5d65f4f9778",
+    "name": "Hazard Horizon Opening Scene",
+    "created_at": "2024-07-04T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "4c2d4118", "text": "Opening scene: Arzamendi is reviewing chat transcripts as part of a routine safety audit.", "sender": "human", "created_at": "2024-07-04T00:00:00Z" },
+      { "uuid": "ff032d99", "text": "Strong opening setup.", "sender": "assistant", "created_at": "2024-07-04T00:05:00Z" },
+      { "uuid": "b5fa8a22", "text": "He notices a recurring pattern — certain phrase structures that appear across unrelated conversations.", "sender": "human", "created_at": "2024-07-04T00:09:00Z" },
+      { "uuid": "02f80c62", "text": "Pattern recognition as discovery mechanism.", "sender": "assistant", "created_at": "2024-07-04T00:13:00Z" },
+      { "uuid": "1c28273c", "text": "The tension comes from the reader realizing what he's finding before he does.", "sender": "human", "created_at": "2024-07-04T00:18:00Z" },
+      { "uuid": "925d9ade", "text": "Dramatic irony builds tension.", "sender": "assistant", "created_at": "2024-07-04T00:22:00Z" }
+    ]
+  },
+  {
+    "uuid": "700e83e0-b8ac-4862-9fec-e10d0738955a",
+    "name": "Quad Motor ESK8 Build Log",
+    "created_at": "2024-07-05T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "0b23d682", "text": "Working on a quad motor build. Four 6374 motors on a custom truck setup.", "sender": "human", "created_at": "2024-07-05T00:00:00Z" },
+      { "uuid": "4d05dafb", "text": "Quad motor is ambitious.", "sender": "assistant", "created_at": "2024-07-05T00:04:00Z" },
+      { "uuid": "ec07b824", "text": "The challenge is keeping the deck rigid enough to handle the torque. Previous builds flexed under hard acceleration.", "sender": "human", "created_at": "2024-07-05T00:12:00Z" },
+      { "uuid": "6da42c56", "text": "Deck rigidity is critical.", "sender": "assistant", "created_at": "2024-07-05T00:13:00Z" },
+      { "uuid": "1cbfd638", "text": "I need to design a motor mount that distributes force across the truck hanger evenly.", "sender": "human", "created_at": "2024-07-05T00:23:00Z" },
+      { "uuid": "0538bcff", "text": "Even force distribution prevents failures.", "sender": "assistant", "created_at": "2024-07-05T00:26:00Z" }
+    ]
+  },
+  {
+    "uuid": "629dfdb3-f9f1-420f-8c0e-92a6b600e26b",
+    "name": "TCCC Audio Pipeline Latency Optimization",
+    "created_at": "2024-04-11T00:00:00Z",
+    "chat_messages": [
+      { "uuid": "21585f8d", "text": "Working on reducing the end-to-end latency from voice input to treatment recommendation.", "sender": "human", "created_at": "2024-04-11T00:00:00Z" },
+      { "uuid": "48c040df", "text": "Latency reduction is critical for medical AI.", "sender": "assistant", "created_at": "2024-04-11T00:02:00Z" },
+      { "uuid": "f8d09d4d", "text": "Currently at about 8 seconds total. Voice capture 1s, STT 3s, LLM inference 4s. Need to get under 5.", "sender": "human", "created_at": "2024-04-11T00:10:00Z" },
+      { "uuid": "28d5cad1", "text": "Each stage has optimization opportunities.", "sender": "assistant", "created_at": "2024-04-11T00:15:00Z" },
+      { "uuid": "7e8e7fe5", "text": "What if we stream the STT output directly into the LLM prompt as it generates?", "sender": "human", "created_at": "2024-04-11T00:22:00Z" },
+      { "uuid": "a39552cf", "text": "Streaming pipeline could cut latency significantly.", "sender": "assistant", "created_at": "2024-04-11T00:23:00Z" }
+    ]
+  }
+]
