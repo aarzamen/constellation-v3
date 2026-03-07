@@ -150,8 +150,7 @@ function buildControls() {
     const arToggle = document.getElementById('autorotate-toggle');
     if (arToggle && Graph) {
         arToggle.addEventListener('change', e => {
-            const controls = Graph.controls();
-            controls.autoRotate = e.target.checked;
+            window.isAutoRotating = e.target.checked;
         });
     }
 
@@ -218,6 +217,39 @@ function copyMcpConfig() {
         });
     }
 }
+
+window.takeScreenshot = async function () {
+    const btn = document.getElementById('screenshot-btn');
+    if (!btn) return;
+    const originalText = btn.innerHTML;
+    try {
+        btn.innerHTML = 'Capturing...';
+
+        // Use the Promise pattern for ClipboardItem to satisfy browser security (needs user gesture)
+        const blobPromise = new Promise(resolve => {
+            // Force synchronous render pass to guarantee buffer isn't empty (fixes clear WebGL buffer issue)
+            if (Graph) {
+                Graph.renderer().render(Graph.scene(), Graph.camera());
+            }
+            const canvas = document.querySelector('#graph-viewport canvas');
+            if (canvas) {
+                canvas.toBlob(resolve, 'image/png');
+            } else {
+                throw new Error("Canvas not found");
+            }
+        });
+
+        await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blobPromise })
+        ]);
+
+        btn.innerHTML = 'Copied! &#10003;';
+    } catch (err) {
+        console.error('Screenshot failed:', err);
+        btn.innerHTML = 'Failed &#10060;';
+    }
+    setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+};
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', init);

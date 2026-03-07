@@ -16,28 +16,30 @@ Claude Export (conversations.json)
         │
         ▼
     Parser (core/parser.py)
-    Extract conversations, separate user messages
+    Extract conversations, separate user messages, recurvsive chunking
         │
         ▼
     Embedder (core/embedder.py)
     all-MiniLM-L6-v2, local, 384 dimensions
-    Embed each user message individually
-        │
-        ▼
-    Mean Pooling
-    Average message vectors per conversation
-    L2-normalize the result
+    Embed individual text chunks (resumable indexing)
         │
         ▼
     Indexer (core/indexer.py)
     ├── Auto-cluster (spherical k-means, silhouette sweep K=5..20)
     ├── Build edges (cosine similarity, percentile threshold)
     ├── PCA 3D projection (numpy SVD)
-    └── Generate graph_data.json for frontend
+    └── Generate graph_data.json
+        │
+        ▼
+    REST API & Hybrid Search (server/api.py)
+    ├── Semantic Similarity (Cosine on chunks)
+    ├── Lexical BM25 Search (core/lexical.py)
+    └── Reciprocal Rank Fusion (RRF)
         │
         ▼
     data/
-    ├── embeddings.npy        # Numpy binary, ~1.5MB for 1K conversations
+    ├── embeddings.npy        # Numpy binary of chunk vectors
+    ├── chunk_to_conv.json    # Map between chunks and source conversations
     ├── conversations.json    # Parsed conversation text + metadata
     ├── clusters.json         # Cluster assignments and labels
     └── graph_data.json       # Frontend-ready graph structure
@@ -45,17 +47,23 @@ Claude Export (conversations.json)
 
 ## Key Design Decisions
 
-### No sklearn
-KMeans, PCA, cosine similarity, and silhouette scoring are implemented in pure numpy (~80 lines in `core/math_utils.py`). At 1,000 conversations × 384 dimensions, the entire index fits in under 10MB of RAM.
+### No External Vector DBs or LangChain
+KMeans, PCA, cosine similarity, BM25 indices, and text chunking are implemented in pure Python/Numpy. The architecture prioritizes lightweight, self-contained mechanisms over heavy frameworks. 
 
-### Embed User Messages Only
-Assistant messages contain too much shared boilerplate. User messages carry the topical signal. Each conversation is represented by the mean of its user message embeddings.
+### Chunk-Level Embeddings (V4)
+To ensure reliable recall across massive transcripts, user messages are recursively chunked via paragraph splits. Embeddings are stored per chunk, and search results trace chunks back to their parent conversation identity.
 
-### Percentile-Based Edges
-Edges connect conversations whose cosine similarity falls in the top percentile (default 95th). This auto-scales regardless of corpus size.
+### Hybrid Exact + Semantic Search (V4)
+Search requests concurrently map against a native inverted BM25 index (for strict exact-match keywords) and the dense vector arrays. The two lists are merged via Reciprocal Rank Fusion (RRF).
 
-### Independent Servers
-The MCP server loads its own copy of embeddings from disk (~1.5MB, instant). It doesn't depend on the HTTP server. Startup cost is ~1-2 seconds.
+### Resumable Indexing (V4)
+The pipeline automatically parses the `conversations.json` against the cached `embeddings.npy`, intelligently skipping previously processed exports and significantly accelerating iterative updates.
+
+### LOD (Level of Detail) & Massive Scale (V4)
+To maintain 60 FPS in browsers exceeding 5,000 nodes, `3d-force-graph` is augmented with `THREE.LOD`. Distant elements degrade gracefully to low-poly basic meshes, and visual noise (edges/particles) is dynamically suppressed outside the active focus state.
+
+### Conservative MCP Writes
+The MCP server operates natively over `stdout`. Read operations (semantic search, exact fetch) are cleanly isolated. Write operations (`add_conversation_note`) explicitly mutate local flat-file JSON metadata without destructively triggering global vector re-clustering.
 
 ## Directory Structure
 
@@ -63,25 +71,26 @@ The MCP server loads its own copy of embeddings from disk (~1.5MB, instant). It 
 constellation/
 ├── launch.py              # Entry point
 ├── core/
-│   ├── parser.py          # Claude export → unified format
+│   ├── parser.py          # Claude export → unified format & chunking
+│   ├── lexical.py         # Native BM25 inverted index
 │   ├── embedder.py        # sentence-transformers wrapper
-│   ├── indexer.py         # Clustering, edges, graph output
+│   ├── indexer.py         # Clustering, edges, incremental graph output
 │   ├── math_utils.py      # Pure numpy: kmeans, pca, cosine
 │   └── config.py          # Settings (YAML)
 ├── server/
 │   ├── http_server.py     # Static files + REST API
 │   ├── mcp_server.py      # MCP endpoint (standalone)
-│   └── api.py             # Shared search logic
+│   └── api.py             # Shared hybrid search & RRF logic
 ├── frontend/
 │   ├── index.html
 │   ├── css/constellation.css
 │   └── js/
-│       ├── app.js         # Orchestrator
-│       ├── graph.js       # 3d-force-graph wrapper
+│       ├── app.js         # Orchestrator & Clipboard APIs
+│       ├── graph.js       # 3d-force-graph & THREE.LOD wrapper
 │       ├── starfield.js   # Background renderer
 │       ├── timeline.js    # Brushable timeline
-│       ├── inspector.js   # Conversation viewer
-│       └── search.js      # Search interface
+│       ├── inspector.js   # Conversation viewer (query highlighting)
+│       └── search.js      # Hybrid search interface
 └── data/                  # Generated at runtime (gitignored)
 ```
 

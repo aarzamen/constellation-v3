@@ -21,10 +21,12 @@ On first run, Constellation will:
 
 ## Features
 
-- **Semantic Memory Server** — MCP-compatible memory bank. Claude Desktop, Claude Code, or any MCP client can query your full conversation history.
-- **REST API** — Same search capability for non-MCP clients.
-- **3D Visualization** — Interactive force-directed graph where conversations are stars and clusters are constellations.
-- **Fully Local** — No API keys, no external services. Embedding runs on CPU with `all-MiniLM-L6-v2`.
+- **Semantic Memory Server** — MCP-compatible memory bank. Claude Desktop, Claude Code, or any MCP client can query your full conversation history. Includes explicit write-capabilities (`add_conversation_note`).
+- **Hybrid Exact + Semantic Search** — Native Reciprocal Rank Fusion (RRF) combines `sentence-transformers` vector search with a pure-Python BM25 lexical index for perfect keyword recall.
+- **REST API** — Same hybrid search capability for non-MCP clients.
+- **3D Visualization** — Interactive LOD (Level of Detail) force-directed graph where conversations are stars and clusters are constellations. Built for massive scale (>5,000 nodes).
+- **Resumable Indexing** — Fast, incremental data processing. Only new exports are tokenized and chunked, caching state across runs.
+- **Fully Local** — No API keys, no external vector DBs, no heavy frameworks (LangChain/LlamaIndex). Embedding runs entirely locally via CPU.
 - **Headless Mode** — Run as a pure memory server with `--headless`.
 
 ## Usage
@@ -53,12 +55,12 @@ Add to your Claude Desktop config:
 }
 ```
 
-Then ask Claude: *"What was that conversation I had about cardiac emergency protocols?"*
+Then ask Claude: *"What was that conversation I had about cardiac emergency protocols?"* or *"Please tag conversation [uuid] with the note 'Requires follow-up'."*
 
 ## REST API
 
 ```bash
-# Semantic search
+# Hybrid search
 curl -X POST http://localhost:8420/api/search \
   -H 'Content-Type: application/json' \
   -d '{"query": "cardiac emergency protocol", "top_k": 5}'

@@ -71,33 +71,44 @@ function initGraph(data) {
         return lod;
     });
 
-    // Auto-rotate camera
-    const controls = Graph.controls();
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.5;
+    // Auto-rotate custom loop (fixes render suspension bug)
+    window.isAutoRotating = true;
+    let cameraPaused = false;
+
+    function rotateTick() {
+        if (window.isAutoRotating && !cameraPaused && Graph) {
+            const camPos = Graph.cameraPosition();
+            if (camPos && (camPos.x !== 0 || camPos.z !== 0)) {
+                const distance = Math.hypot(camPos.x, camPos.z);
+                const currentAngle = Math.atan2(camPos.x, camPos.z);
+                const nextAngle = currentAngle + Math.PI / 1500;
+                Graph.cameraPosition({
+                    x: distance * Math.sin(nextAngle),
+                    z: distance * Math.cos(nextAngle),
+                    y: camPos.y // preserve height
+                });
+            }
+        }
+        requestAnimationFrame(rotateTick);
+    }
+    rotateTick();
 
     // Pause auto-rotate during user interaction, resume after 3s idle
     let interactionTimer = null;
-    container.addEventListener('mousedown', () => {
-        if (controls.autoRotate) {
-            controls.autoRotate = false;
-            clearTimeout(interactionTimer);
-        }
-    });
-    container.addEventListener('mouseup', () => {
-        const toggle = document.getElementById('autorotate-toggle');
-        if (toggle && toggle.checked) {
-            clearTimeout(interactionTimer);
-            interactionTimer = setTimeout(() => { controls.autoRotate = true; }, 3000);
-        }
-    });
+    function pauseRotation() {
+        cameraPaused = true;
+        clearTimeout(interactionTimer);
+    }
+    function resumeRotation() {
+        clearTimeout(interactionTimer);
+        interactionTimer = setTimeout(() => { cameraPaused = false; }, 3000);
+    }
+
+    container.addEventListener('mousedown', pauseRotation);
+    container.addEventListener('mouseup', resumeRotation);
     container.addEventListener('wheel', () => {
-        const toggle = document.getElementById('autorotate-toggle');
-        if (toggle && toggle.checked) {
-            controls.autoRotate = false;
-            clearTimeout(interactionTimer);
-            interactionTimer = setTimeout(() => { controls.autoRotate = true; }, 3000);
-        }
+        pauseRotation();
+        resumeRotation();
     });
 
     // Load data
