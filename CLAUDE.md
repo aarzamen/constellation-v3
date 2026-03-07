@@ -37,6 +37,7 @@ launch.py
     ├── core/indexer.py     → KMeans clustering, PCA projection, graph generation
     ├── core/math_utils.py  → Pure numpy: kmeans++, silhouette, cosine sim, PCA
     ├── core/lexical.py     → BM25 inverted index (pure Python)
+    ├── core/notes.py       → Sidecar note persistence (data/notes.json)
     ├── core/config.py      → YAML config management
     │
     ├── server/api.py       → SearchEngine class (hybrid RRF search, notes)
@@ -120,9 +121,12 @@ The MCP server (`server/mcp_server.py`) exposes Constellation as a tool-use memo
 
 | Tool | Args | Returns | Write? |
 |---|---|---|---|
-| `search_conversations` | `query: str`, `top_k: int = 5` | List of matches with title, date, scores, excerpt | No |
-| `get_conversation` | `conversation_id: str` (UUID) | Full conversation with all messages | No |
-| `add_conversation_note` | `conversation_id: str`, `note_text: str` | Status dict | Yes (appends to `conversations.json`) |
+| `search_conversations` | `query: str`, `top_k: int = 5` | List of matches with title, date, scores, excerpt, cluster_id, notes_count | No |
+| `get_conversation` | `conversation_id: str` (UUID) | Full conversation with messages, notes, cluster_id | No |
+| `list_conversations` | `offset: int = 0`, `limit: int = 20`, `sort_by: str = "date"` | Paginated conversation list (max 50) | No |
+| `get_stats` | *(none)* | Index statistics (counts, date range, embedding info) | No |
+| `add_conversation_note` | `conversation_id: str`, `note_text: str` | Status dict with new note and current notes list | Yes (sidecar `data/notes.json`) |
+| `delete_conversation_note` | `conversation_id: str`, `note_id: str` | Status dict with remaining notes list | Yes (sidecar `data/notes.json`) |
 
 ### Search Pipeline (what happens inside `search_conversations`)
 
@@ -146,16 +150,22 @@ The MCP server (`server/mcp_server.py`) exposes Constellation as a tool-use memo
   "chunk_score": 0.84,
   "lexical_score": 3.2,
   "message_count": 12,
-  "excerpt": "The exact user message that matched best..."
+  "excerpt": "The exact user message that matched best...",
+  "cluster_id": 3,
+  "cluster_label": "deployment / medical / readiness",
+  "notes_count": 1
 }
 ```
 
-### Notes System (`add_conversation_note`)
+### Notes System (`add_conversation_note` / `delete_conversation_note`)
 
 - Notes are **append-only metadata** — they do not alter embeddings, clusters, or graph data
-- Notes are persisted by rewriting `data/conversations.json` on every append
-- Each note stores `{text, created_at}` with a UTC ISO timestamp
-- Notes survive re-clustering but are **lost on re-embedding** (`--reembed`) because `save_pipeline_output` in `indexer.py` does not carry forward the `notes` field when rewriting `conversations.json`
+- Notes are persisted in a **sidecar file** (`data/notes.json`), separate from `conversations.json`
+- Each note stores `{text, created_at, note_id}` with a UTC ISO timestamp and 8-char hex ID
+- Notes **survive pipeline rebuilds** including `--reembed` — the sidecar is never overwritten by the pipeline
+- Atomic writes via `os.replace` prevent partial writes
+- Legacy notes in `conversations.json` are automatically migrated to the sidecar on first load
+- Use `delete_conversation_note` with the `note_id` to remove a note (no update — delete and re-add)
 
 ### REST API Equivalents (HTTP Server)
 
@@ -165,7 +175,9 @@ The HTTP server at port 8420 exposes the same `SearchEngine` class via REST:
 |---|---|---|
 | `/api/search` | POST `{"query": "...", "top_k": 5}` | `search_conversations` |
 | `/api/conversation/<id>` | GET | `get_conversation` |
-| `/api/stats` | GET | *(no MCP equivalent)* |
+| `/api/conversations?offset=0&limit=20&sort_by=date` | GET | `list_conversations` |
+| `/api/conversation/<id>/notes/<note_id>` | DELETE | `delete_conversation_note` |
+| `/api/stats` | GET | `get_stats` |
 | `/api/recluster?k=10` | GET | *(no MCP equivalent)* |
 
 ### Claude Desktop Configuration
@@ -182,6 +194,25 @@ To wire this up in Claude Desktop's `claude_desktop_config.json`:
   }
 }
 ```
+
+### Claude Code Configuration
+
+Claude Code can also use Constellation as an MCP server. Add to `.claude/settings.json` (project-level) or `~/.claude/settings.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "constellation": {
+      "command": "python3",
+      "args": ["/absolute/path/to/constellation-v3/server/mcp_server.py"]
+    }
+  }
+}
+```
+
+Both Claude Desktop and Claude Code can run simultaneously — each spawns its own subprocess with no port conflicts. The only shared state is the `data/` directory: reads are safe, and note writes use atomic file replacement (`os.replace`) so concurrent writes are safe on POSIX systems.
+
+**Usage from a coding agent**: A coding agent can use `search_conversations` to find past discussions about specific libraries, patterns, or debugging sessions. `list_conversations` lets it browse recent conversations for context without needing a search query. `get_stats` tells it how much memory is available and the date range covered. Notes can be added to conversations to mark important findings or tag conversations for follow-up.
 
 ### Testing the MCP Server Without Claude Desktop
 
