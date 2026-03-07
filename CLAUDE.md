@@ -106,6 +106,123 @@ python3 server/mcp_server.py
 - `TestSearchEngine` and `TestEndToEnd` may `skipTest` if `data/` doesn't exist or sentence-transformers model isn't downloaded.
 - Sample data for testing: `sample_data/dummy_conversations.json` (~28KB, synthetic conversations).
 
+## MCP Memory Server Interface
+
+The MCP server (`server/mcp_server.py`) exposes Constellation as a tool-use memory layer for LLM clients. It runs as a **standalone subprocess** over stdio (JSON-RPC), designed to be launched by Claude Desktop or any MCP-compatible host.
+
+### MCP Tools Exposed
+
+| Tool | Args | Returns | Write? |
+|---|---|---|---|
+| `search_conversations` | `query: str`, `top_k: int = 5` | List of matches with title, date, scores, excerpt | No |
+| `get_conversation` | `conversation_id: str` (UUID) | Full conversation with all messages | No |
+| `add_conversation_note` | `conversation_id: str`, `note_text: str` | Status dict | Yes (appends to `conversations.json`) |
+
+### Search Pipeline (what happens inside `search_conversations`)
+
+1. Query is embedded via `all-MiniLM-L6-v2` (384d vector)
+2. Three scoring passes run in parallel:
+   - **Conversation-level semantic**: cosine similarity of query vs. mean-pooled conversation embeddings
+   - **Chunk-level semantic**: cosine similarity of query vs. individual user message embeddings (finds the single best-matching message per conversation)
+   - **Lexical (BM25)**: token-level keyword matching across conversation text
+3. Scores are fused via **Reciprocal Rank Fusion (RRF)** with k=60
+4. Top-k results returned with the best-matching message excerpt auto-extracted
+
+### Result Shape (per search hit)
+
+```json
+{
+  "id": "uuid-string",
+  "title": "Conversation Name",
+  "date": "2025-03-08T00:00:00.852470Z",
+  "score": 0.032,
+  "conversation_score": 0.71,
+  "chunk_score": 0.84,
+  "lexical_score": 3.2,
+  "message_count": 12,
+  "excerpt": "The exact user message that matched best..."
+}
+```
+
+### Notes System (`add_conversation_note`)
+
+- Notes are **append-only metadata** — they do not alter embeddings, clusters, or graph data
+- Notes are persisted by rewriting `data/conversations.json` on every append
+- Each note stores `{text, created_at}` with a UTC ISO timestamp
+- Notes survive re-clustering but are **lost on re-embedding** (`--reembed`) because `save_pipeline_output` in `indexer.py` does not carry forward the `notes` field when rewriting `conversations.json`
+
+### REST API Equivalents (HTTP Server)
+
+The HTTP server at port 8420 exposes the same `SearchEngine` class via REST:
+
+| Endpoint | Method | Equivalent MCP Tool |
+|---|---|---|
+| `/api/search` | POST `{"query": "...", "top_k": 5}` | `search_conversations` |
+| `/api/conversation/<id>` | GET | `get_conversation` |
+| `/api/stats` | GET | *(no MCP equivalent)* |
+| `/api/recluster?k=10` | GET | *(no MCP equivalent)* |
+
+### Claude Desktop Configuration
+
+To wire this up in Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "constellation": {
+      "command": "python3",
+      "args": ["/absolute/path/to/constellation-v3/server/mcp_server.py"]
+    }
+  }
+}
+```
+
+### Testing the MCP Server Without Claude Desktop
+
+The MCP server can be exercised from the command line or from a Claude Code session using the REST API (requires `launch.py` running) or by importing the `SearchEngine` class directly in Python:
+
+```python
+# Direct Python usage (requires data/ directory with embeddings)
+from server.api import SearchEngine
+engine = SearchEngine()
+engine.load()
+results = engine.search("deployment medical readiness", top_k=3)
+```
+
+```bash
+# REST API via curl (requires launch.py running on port 8420)
+curl -X POST http://localhost:8420/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "deployment medical readiness", "top_k": 3}'
+
+# Retrieve a specific conversation
+curl http://localhost:8420/api/conversation/<uuid>
+```
+
+### Data Dependency
+
+The MCP server requires the `data/` directory to be populated by the embedding pipeline. Without it, all tools return errors. The pipeline is triggered by:
+
+```bash
+python3 launch.py                    # Full pipeline + serve + browser
+python3 launch.py --headless         # Full pipeline + serve (API only)
+```
+
+Input data: Place a Claude export JSON file in the project root (the parser looks for `conversations.json` by default, configurable in `config.yaml`).
+
+### Open Questions for MCP Interface Development
+
+1. **Notes lost on re-embed**: `save_pipeline_output()` in `indexer.py:328` rebuilds `conversations.json` from scratch without carrying forward `notes`. Should notes be stored in a separate `notes.json` sidecar file instead?
+2. **No `list_conversations` tool**: The MCP interface has no way to browse or paginate all conversations — you must already know a query or a UUID. Should a `list_conversations(offset, limit, sort_by)` tool be added?
+3. **No `delete_note` or `update_note` tool**: Notes are append-only with no way to correct or remove them via MCP.
+4. **Search requires model load**: The first `search_conversations` call triggers lazy-loading of the sentence-transformers model (~90MB), causing a 5-15 second cold-start delay. Should the MCP server pre-load on startup?
+5. **No conversation ingestion via MCP**: There is no tool to add new conversations through the MCP interface. Ingestion requires re-running the full pipeline. Could a lightweight `ingest_conversation` tool incrementally add a single conversation without re-embedding everything?
+6. **No cluster/graph context in search results**: MCP search results don't include which cluster a conversation belongs to or its neighboring conversations. Would cluster labels and related conversation IDs be useful in search results?
+7. **Stats not exposed via MCP**: The `get_stats()` method exists on `SearchEngine` but has no MCP tool wrapper. Useful for an agent to understand the scope of available memory.
+8. **Conversation message format**: `get_conversation` returns `{role, text}` pairs but drops metadata like timestamps, UUIDs, and any attached notes. Should the full message metadata be included?
+9. **Batch operations**: No support for batch search or batch note-append. If an agent wants to annotate multiple conversations in one pass, it must make N sequential tool calls.
+10. **MCP server has no auth**: The stdio transport is inherently local, but if the server were ever exposed over SSE/HTTP transport (which `fastmcp` supports), there would be no authentication layer.
+
 ## Known Issues and Gotchas
 
 1. **`lexical.py:36` dead variable**: `np_zeros = [0] * self.doc_count` — the name `np_zeros` is assigned but is actually being assigned to `self.doc_lengths` via a chained assignment. Harmless but confusing; `np_zeros` is never referenced again.
