@@ -115,7 +115,8 @@ function buildControls() {
                     appData = newData;
                     appData._allEdges = [...appData.edges];
                     graphData = appData;
-                    applyFilters();
+                    const currentPercentile = parseInt(document.getElementById('edge-slider').value);
+                    updateEdgePercentile(currentPercentile);
                     buildClusterList();
                     updateStatusBar(appData.nodes.length);
                 }

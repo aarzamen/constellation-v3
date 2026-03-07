@@ -158,9 +158,12 @@ function handleNodeClick(node) {
     showInspector(node);
     // Fly camera to node
     const distance = 60;
-    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+    const nx = node.x || 0.1;
+    const ny = node.y || 0.1;
+    const nz = node.z || 0.1;
+    const distRatio = 1 + distance / Math.hypot(nx, ny, nz);
     Graph.cameraPosition(
-        { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+        { x: nx * distRatio, y: ny * distRatio, z: nz * distRatio },
         node,
         1000
     );

@@ -93,6 +93,11 @@ function showSearchResults(nodes, type) {
 function focusNode(nodeId) {
     const node = graphData.nodes.find(n => n.id === nodeId);
     if (node) {
+        if (filteredClusters.has(node.cluster)) {
+            filteredClusters.delete(node.cluster);
+            buildClusterList();
+            applyFilters();
+        }
         handleNodeClick(node);
     }
 }
