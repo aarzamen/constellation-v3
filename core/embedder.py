@@ -11,12 +11,13 @@ class Embedder:
     """Local embedding engine using sentence-transformers."""
 
     def __init__(self, model_name='all-MiniLM-L6-v2'):
-        print(f"Loading embedding model: {model_name}...")
-        print("(First run will download ~80MB model, cached for future use)")
+        import sys
+        print(f"Loading embedding model: {model_name}...", file=sys.stderr)
+        print("(First run will download ~80MB model, cached for future use)", file=sys.stderr)
         from sentence_transformers import SentenceTransformer
         self.model = SentenceTransformer(model_name)
         self.dim = self.model.get_sentence_embedding_dimension()
-        print(f"Model loaded: {model_name} ({self.dim}d)")
+        print(f"Model loaded: {model_name} ({self.dim}d)", file=sys.stderr)
 
     def embed(self, texts: list, show_progress: bool = True) -> np.ndarray:
         """Embed a list of texts. Returns (N, dim) numpy array, L2-normalized."""
