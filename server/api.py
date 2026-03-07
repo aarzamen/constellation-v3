@@ -43,8 +43,9 @@ class SearchEngine:
 
         self.conversation_index = {c['id']: c for c in self.conversations}
         self._loaded = True
+        import sys
         print(f"Loaded {len(self.conversations)} conversations, "
-              f"embeddings shape {self.embeddings.shape}")
+              f"embeddings shape {self.embeddings.shape}", file=sys.stderr)
 
     def _ensure_embedder(self):
         """Lazy-load the embedding model for query embedding."""
