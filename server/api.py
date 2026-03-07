@@ -11,7 +11,7 @@ import numpy as np
 
 from core.config import DATA_DIR
 from core.math_utils import cosine_similarity_query
-from core.notes import load_notes, save_notes, append_note, delete_note as _delete_note, get_notes_for_conversation
+from core.notes import load_notes, append_note, delete_note as _delete_note, get_notes_for_conversation
 
 
 class SearchEngine:
