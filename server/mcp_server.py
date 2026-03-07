@@ -36,7 +36,12 @@ def search_conversations(query: str, top_k: int = 5) -> list:
         List of matching conversations with title, date, relevance score,
         and message excerpts.
     """
-    return engine.search(query, top_k)
+    try:
+        return engine.search(query, top_k)
+    except Exception as e:
+        import sys
+        print(f"Error in search_conversations: {e}", file=sys.stderr)
+        return [{"error": str(e)}]
 
 
 @mcp.tool()
@@ -49,7 +54,34 @@ def get_conversation(conversation_id: str) -> dict:
     Returns:
         Full conversation with all messages.
     """
-    return engine.get_conversation(conversation_id)
+    try:
+        return engine.get_conversation(conversation_id)
+    except Exception as e:
+        import sys
+        print(f"Error in get_conversation: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def add_conversation_note(conversation_id: str, note_text: str) -> dict:
+    """Explicitly append a note to a conversation.
+    
+    This is a conservative write operation that only adds metadata without
+    altering core graph or embeddings.
+    
+    Args:
+        conversation_id: UUID of the conversation.
+        note_text: The string content of the note.
+        
+    Returns:
+        Dictionary indicating status.
+    """
+    try:
+        return engine.add_note(conversation_id, note_text)
+    except Exception as e:
+        import sys
+        print(f"Error in add_conversation_note: {e}", file=sys.stderr)
+        return {"error": str(e)}
 
 
 if __name__ == '__main__':

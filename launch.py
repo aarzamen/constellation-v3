@@ -99,46 +99,121 @@ def find_source(config: dict, source_arg: str = None) -> str:
     sys.exit(1)
 
 
-def run_pipeline(source_path: str, config: dict):
-    """Run the full embedding pipeline."""
+def run_pipeline(source_path: str, config: dict, force_reembed: bool = False):
+    """Run the full embedding pipeline incrementally."""
     from core.parser import parse_claude_export
     from core.embedder import Embedder
     from core.indexer import (
-        embed_conversations,
-        build_clusters,
-        build_edges,
-        build_graph_data,
-        save_pipeline_output,
+        embed_conversations, build_clusters, build_edges, build_graph_data, save_pipeline_output
     )
+    import numpy as np
+    import json
+    import os
 
     ensure_data_dir()
-
-    # Parse
-    conversations = parse_claude_export(source_path)
-    if not conversations:
+    new_conversations = parse_claude_export(source_path)
+    if not new_conversations:
         print("No conversations found in export.")
         sys.exit(1)
 
-    msg_count = sum(len(c['messages']) for c in conversations)
-    print(f"{len(conversations)} conversations \u00b7 {msg_count} messages\n")
+    conv_path = os.path.join(DATA_DIR, 'conversations.json')
+    emb_path = os.path.join(DATA_DIR, 'embeddings.npy')
+    chunk_emb_path = os.path.join(DATA_DIR, 'chunk_embeddings.npy')
+    chunk_map_path = os.path.join(DATA_DIR, 'chunk_to_conv.json')
 
-    # Embed
-    embedder = Embedder(config.get('embedding', {}).get('model', 'all-MiniLM-L6-v2'))
-    embeddings = embed_conversations(conversations, embedder)
+    existing_convs = []
+    existing_emb = None
+    existing_chunk_emb = None
+    existing_chunk_map = []
+    
+    use_cache = not force_reembed and os.path.exists(conv_path) and os.path.exists(emb_path)
+    
+    if use_cache:
+        print("Loading existing index for incremental processing...")
+        with open(conv_path, 'r') as f:
+            existing_convs = json.load(f)
+        existing_emb = np.load(emb_path)
+        if os.path.exists(chunk_emb_path) and os.path.exists(chunk_map_path):
+            existing_chunk_emb = np.load(chunk_emb_path)
+            with open(chunk_map_path, 'r') as f:
+                existing_chunk_map = json.load(f)
 
-    # Cluster
+    old_id_to_idx = {c['id']: i for i, c in enumerate(existing_convs)}
+    
+    to_embed = []
+    for conv in new_conversations:
+        if not use_cache or conv['id'] not in old_id_to_idx:
+            to_embed.append(conv)
+
+    if not to_embed and use_cache:
+        print("No new conversations found. Core graph remains unchanged.")
+        # If there are no new conversations, we can safely just exit early and not recluster/rewrite
+        # return existing graph data. But wait, we need to load graph data to return it!
+        graph_data_path = os.path.join(DATA_DIR, 'graph_data.json')
+        if os.path.exists(graph_data_path):
+            with open(graph_data_path, 'r') as f:
+                return json.load(f)
+
+    new_emb = None
+    new_chunk_emb = None
+    new_chunk_map = []
+    if to_embed:
+        msg_count = sum(len(c['messages']) for c in to_embed)
+        print(f"Indexing {len(to_embed)} NEW conversations \u00b7 {msg_count} messages\n")
+        embedder = Embedder(config.get('embedding', {}).get('model', 'all-MiniLM-L6-v2'))
+        new_emb, new_chunk_emb, new_chunk_map = embed_conversations(to_embed, embedder)
+    
+    final_emb = []
+    final_chunk_emb = []
+    final_chunk_map = []
+    
+    new_embed_idx = 0
+    
+    old_idx_to_chunks = {}
+    if existing_chunk_emb is not None:
+        for i, conv_idx in enumerate(existing_chunk_map):
+            old_idx_to_chunks.setdefault(conv_idx, []).append(existing_chunk_emb[i])
+            
+    new_idx_to_chunks = {}
+    if new_chunk_emb is not None:
+        for i, conv_idx in enumerate(new_chunk_map):
+            new_idx_to_chunks.setdefault(conv_idx, []).append(new_chunk_emb[i])
+
+    for i, conv in enumerate(new_conversations):
+        cid = conv['id']
+        if use_cache and cid in old_id_to_idx:
+            old_idx = old_id_to_idx[cid]
+            final_emb.append(existing_emb[old_idx])
+            
+            if existing_chunk_emb is not None and old_idx in old_idx_to_chunks:
+                for chunk_vec in old_idx_to_chunks[old_idx]:
+                    final_chunk_emb.append(chunk_vec)
+                    final_chunk_map.append(i)
+            elif existing_chunk_emb is None:
+                final_chunk_emb.append(existing_emb[old_idx])
+                final_chunk_map.append(i)
+        else:
+            final_emb.append(new_emb[new_embed_idx])
+            
+            if new_chunk_emb is not None and new_embed_idx in new_idx_to_chunks:
+                for chunk_vec in new_idx_to_chunks[new_embed_idx]:
+                    final_chunk_emb.append(chunk_vec)
+                    final_chunk_map.append(i)
+            elif new_chunk_emb is None:
+                final_chunk_emb.append(new_emb[new_embed_idx])
+                final_chunk_map.append(i)
+                
+            new_embed_idx += 1
+
+    embeddings = np.array(final_emb)
+    chunk_embeddings = np.array(final_chunk_emb) if final_chunk_emb else None
+    
+    print("Re-clustering and caching final graph...")
     cluster_info = build_clusters(embeddings)
+    edges = build_edges(embeddings, new_conversations)
+    graph_data = build_graph_data(new_conversations, embeddings, cluster_info, edges)
 
-    # Edges
-    edges = build_edges(embeddings, conversations)
-
-    # Build graph data
-    graph_data = build_graph_data(conversations, embeddings, cluster_info, edges)
-
-    # Save
-    save_pipeline_output(conversations, embeddings, graph_data, DATA_DIR)
-
-    # Update config with source path
+    save_pipeline_output(new_conversations, embeddings, chunk_embeddings, final_chunk_map, graph_data, DATA_DIR)
     config['source']['path'] = os.path.abspath(source_path)
     save_config(config)
 
@@ -202,18 +277,8 @@ def main():
     if args.port:
         config['server']['port'] = args.port
 
-    # Check for cached data
-    embeddings_path = os.path.join(DATA_DIR, 'embeddings.npy')
-    graph_data_path = os.path.join(DATA_DIR, 'graph_data.json')
-
-    need_pipeline = args.reembed or not os.path.exists(embeddings_path) \
-        or not os.path.exists(graph_data_path)
-
-    if need_pipeline:
-        source_path = find_source(config, args.source)
-        run_pipeline(source_path, config)
-    else:
-        print("Using cached embeddings and graph data.")
+    source_path = find_source(config, args.source)
+    run_pipeline(source_path, config, force_reembed=args.reembed)
 
     start_server(config, args.headless)
 

@@ -28,11 +28,11 @@ function initGraph(data) {
         .linkSource('source')
         .linkTarget('target')
         .linkWidth(link => link.weight * 2)
-        .linkOpacity(0.15)
+        .linkOpacity(0.04)
         .linkDirectionalParticles(link => Math.ceil(link.weight * 4))
         .linkDirectionalParticleSpeed(0.002)
         .linkDirectionalParticleWidth(1)
-        .linkDirectionalParticleColor(() => 'rgba(121, 87, 217, 0.6)')
+        .linkDirectionalParticleColor(() => 'rgba(121, 87, 217, 0.4)')
         .backgroundColor('rgba(0,0,0,0)')
         .onNodeClick(handleNodeClick)
         .onNodeHover(handleNodeHover)
@@ -41,18 +41,34 @@ function initGraph(data) {
         .d3AlphaDecay(0.02)
         .d3VelocityDecay(0.3);
 
-    // Custom node rendering with emissive glow (no sprites — avoids rectangular halo artifacts)
+    // Custom node rendering with LOD (Level of Detail)
     Graph.nodeThreeObject(node => {
         const size = nodeSize(node);
-        const geometry = new THREE.SphereGeometry(size, 16, 16);
-        const material = new THREE.MeshPhongMaterial({
+        const lod = new THREE.LOD();
+
+        // High detail: glossy phong material
+        const highGeo = new THREE.SphereGeometry(size, 16, 16);
+        const highMat = new THREE.MeshPhongMaterial({
             color: node.color,
             emissive: node.color,
-            emissiveIntensity: 0.4,
+            emissiveIntensity: 0.5,
             transparent: true,
             opacity: 0.85
         });
-        return new THREE.Mesh(geometry, material);
+        const highMesh = new THREE.Mesh(highGeo, highMat);
+        lod.addLevel(highMesh, 0);
+
+        // Low detail: basic reduced geometry for massive scale performance
+        const lowGeo = new THREE.SphereGeometry(size, 5, 5);
+        const lowMat = new THREE.MeshBasicMaterial({
+            color: node.color,
+            transparent: true,
+            opacity: 0.6
+        });
+        const lowMesh = new THREE.Mesh(lowGeo, lowMat);
+        lod.addLevel(lowMesh, 200);
+
+        return lod;
     });
 
     // Auto-rotate camera
@@ -153,9 +169,9 @@ function applyFilters() {
     updateStatusBar(nodes.length);
 }
 
-function handleNodeClick(node) {
+function handleNodeClick(node, query = '') {
     if (!node) return;
-    showInspector(node);
+    showInspector(node, query);
     // Fly camera to node
     const distance = 60;
     const nx = node.x || 0.1;
@@ -177,11 +193,13 @@ function highlightNodes(nodeIds) {
     const idSet = new Set(nodeIds);
     if (!Graph || !graphData) return;
 
-    Graph.nodeOpacity(node => idSet.has(node.id) ? 1.0 : 0.15);
+    // Stronger contrast: Unfocused nodes drop to 0.05 opacity, focused to 1.0
+    Graph.nodeOpacity(node => idSet.has(node.id) ? 1.0 : 0.05);
     Graph.linkOpacity(link => {
         const src = typeof link.source === 'object' ? link.source.id : link.source;
         const tgt = typeof link.target === 'object' ? link.target.id : link.target;
-        return (idSet.has(src) && idSet.has(tgt)) ? 0.3 : 0.02;
+        // Unfocused edges disappear entirely (0.01), focused become highly visible (0.6)
+        return (idSet.has(src) && idSet.has(tgt)) ? 0.6 : 0.01;
     });
 
     // Fly to first result
@@ -195,8 +213,8 @@ function highlightNodes(nodeIds) {
 
 function clearHighlight() {
     if (!Graph) return;
-    Graph.nodeOpacity(0.9);
-    Graph.linkOpacity(0.15);
+    Graph.nodeOpacity(0.85); // Matches high detail mesh opacity
+    Graph.linkOpacity(0.04); // Matches initGraph base opacity
 }
 
 // Layout modes

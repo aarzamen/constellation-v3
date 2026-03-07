@@ -94,17 +94,26 @@ def embed_conversations(conversations: list, embedder) -> np.ndarray:
 
     # Mean pool per conversation
     conv_embeddings = []
+    chunk_to_conv = []
     idx = 0
-    for count in message_counts:
+    for conv_idx, count in enumerate(message_counts):
+        if count == 0:
+            # Fallback if no user messages
+            mean_vector = np.zeros(embedder.dim)
+            conv_embeddings.append(mean_vector)
+            continue
+            
         msg_vectors = all_embeddings[idx:idx + count]
         mean_vector = msg_vectors.mean(axis=0)
         norm = np.linalg.norm(mean_vector)
         if norm > 0:
             mean_vector /= norm
         conv_embeddings.append(mean_vector)
+        for _ in range(count):
+            chunk_to_conv.append(conv_idx)
         idx += count
 
-    return np.array(conv_embeddings)
+    return np.array(conv_embeddings), all_embeddings, chunk_to_conv
 
 
 def build_clusters(embeddings: np.ndarray, k_override: int = None) -> dict:
@@ -317,12 +326,18 @@ def build_timeline(conversations: list, labels: np.ndarray) -> list:
 
 
 def save_pipeline_output(conversations: list, embeddings: np.ndarray,
+                         chunk_embeddings: np.ndarray, chunk_to_conv: list,
                          graph_data: dict, data_dir: str):
     """Save all pipeline outputs to disk."""
     os.makedirs(data_dir, exist_ok=True)
 
     # Save embeddings as numpy binary
     np.save(os.path.join(data_dir, 'embeddings.npy'), embeddings)
+    
+    if chunk_embeddings is not None and chunk_to_conv is not None:
+        np.save(os.path.join(data_dir, 'chunk_embeddings.npy'), chunk_embeddings)
+        with open(os.path.join(data_dir, 'chunk_to_conv.json'), 'w') as f:
+            json.dump(chunk_to_conv, f)
 
     # Save conversations (without user_messages to save space)
     conv_data = []

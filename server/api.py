@@ -42,10 +42,21 @@ class SearchEngine:
             self.conversations = json.load(f)
 
         self.conversation_index = {c['id']: c for c in self.conversations}
+        
+        # Build lexical index
+        from core.lexical import BM25Index
+        self.bm25 = BM25Index()
+        docs = []
+        for c in self.conversations:
+            doc_text = c.get('name', '') + ' ' + ' '.join(m.get('text', '') for m in c.get('messages', []))
+            docs.append(doc_text)
+        self.bm25.build(docs)
+
         self._loaded = True
         import sys
         print(f"Loaded {len(self.conversations)} conversations, "
-              f"embeddings shape {self.embeddings.shape}", file=sys.stderr)
+              f"embeddings shape {self.embeddings.shape}, "
+              f"BM25 index built", file=sys.stderr)
 
     def _ensure_embedder(self):
         """Lazy-load the embedding model for query embedding."""
@@ -54,13 +65,29 @@ class SearchEngine:
             self.embedder = Embedder()
 
     def search(self, query: str, top_k: int = 5) -> list:
-        """Semantic search over conversation history."""
+        """Hybrid exact + semantic search over conversation history."""
         self.load()
         self._ensure_embedder()
 
         query_embedding = self.embedder.embed_query(query)
-        similarities = cosine_similarity_query(query_embedding, self.embeddings)
-        top_indices = np.argsort(similarities)[::-1][:top_k]
+        semantic_scores = cosine_similarity_query(query_embedding, self.embeddings)
+        lexical_scores = self.bm25.get_scores(query)
+
+        # Reciprocal Rank Fusion (RRF)
+        sem_ranks = np.argsort(semantic_scores)[::-1]
+        lex_ranks = np.argsort(lexical_scores)[::-1]
+
+        rrf_scores = np.zeros(len(self.conversations))
+        k_rrf = 60
+
+        for rank, idx in enumerate(sem_ranks):
+            rrf_scores[idx] += 1.0 / (k_rrf + rank + 1)
+
+        for rank, idx in enumerate(lex_ranks):
+            if lexical_scores[idx] > 0:
+                rrf_scores[idx] += 1.0 / (k_rrf + rank + 1)
+
+        top_indices = np.argsort(rrf_scores)[::-1][:top_k]
 
         results = []
         for idx in top_indices:
@@ -69,7 +96,8 @@ class SearchEngine:
                 'id': conv['id'],
                 'title': conv['name'],
                 'date': conv.get('created_at', ''),
-                'score': float(similarities[idx]),
+                'score': float(semantic_scores[idx]),
+                'rrf_score': float(rrf_scores[idx]),
                 'message_count': len(conv.get('messages', [])),
                 'excerpt': conv['messages'][0]['text'][:500]
                     if conv.get('messages') else '',
@@ -112,3 +140,28 @@ class SearchEngine:
             'embeddingModel': 'all-MiniLM-L6-v2',
             'embeddingDim': self.embeddings.shape[1] if self.embeddings is not None else 0,
         }
+
+    def add_note(self, conversation_id: str, note_text: str) -> dict:
+        """Append a generic note to a conversation's metadata and save it."""
+        self.load()
+        conv = self.conversation_index.get(conversation_id)
+        if not conv:
+            return {'error': 'Conversation not found'}
+        
+        # Initialize notes array if not present
+        if 'notes' not in conv:
+            conv['notes'] = []
+            
+        import datetime
+        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        conv['notes'].append({'text': note_text, 'created_at': timestamp})
+        
+        # Save explicitly back to conversations.json
+        conv_path = os.path.join(self.data_dir, 'conversations.json')
+        with open(conv_path, 'w') as f:
+            json.dump(self.conversations, f)
+            
+        import sys
+        print(f"Added note to conversation {conversation_id}", file=sys.stderr)
+        
+        return {'status': 'success', 'conversation_id': conversation_id, 'note': note_text}

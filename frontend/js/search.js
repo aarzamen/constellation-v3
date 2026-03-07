@@ -71,7 +71,7 @@ async function semanticSearch(query) {
             return node || { id: r.id, name: r.title, date: r.date, score: r.score };
         }).filter(Boolean);
 
-        showSearchResults(resultNodes, 'semantic');
+        showSearchResults(resultNodes, 'hybrid');
         highlightNodes(resultNodes.map(n => n.id));
     } catch (err) {
         resultsDiv.innerHTML = '<div class="search-result" style="color:var(--text-dim)">Search error</div>';
@@ -80,17 +80,17 @@ async function semanticSearch(query) {
 
 function showSearchResults(nodes, type) {
     const resultsDiv = document.getElementById('search-results');
-    const label = type === 'semantic' ? ' (semantic)' : '';
+    const label = type === 'hybrid' ? ' (hybrid)' : ' (keyword)';
 
     resultsDiv.innerHTML = nodes.map(n => `
-        <div class="search-result" onclick="focusNode('${n.id}')">
-            <strong>${escapeHtml(n.name)}</strong>
-            <br><small>${n.date || ''}${n.score ? ' \u00b7 ' + (n.score * 100).toFixed(0) + '%' : ''}</small>
+        <div class="search-result" onclick="focusNode('${n.id}', document.getElementById('search-input').value)">
+            <strong>${escapeHtml(n.name)}</strong>${label}
+            <br><small>${n.date || ''}${n.score ? ' \u00b7 Semantic: ' + (n.score * 100).toFixed(0) + '% | RRF: ' + (n.rrf_score ? n.rrf_score.toFixed(3) : '') : ''}</small>
         </div>
     `).join('');
 }
 
-function focusNode(nodeId) {
+function focusNode(nodeId, query = '') {
     const node = graphData.nodes.find(n => n.id === nodeId);
     if (node) {
         if (filteredClusters.has(node.cluster)) {
@@ -98,7 +98,7 @@ function focusNode(nodeId) {
             buildClusterList();
             applyFilters();
         }
-        handleNodeClick(node);
+        handleNodeClick(node, query);
     }
 }
 

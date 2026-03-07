@@ -50,6 +50,48 @@ def extract_text_from_content(content) -> str:
     return ''
 
 
+def chunk_text(text: str, max_words: int = 150) -> list:
+    """Recursively chunk text into segments of roughly max_words."""
+    words = text.split()
+    if len(words) <= max_words:
+        return [text]
+    
+    # Try to split by double newline (paragraphs)
+    paragraphs = text.split('\n\n')
+    if len(paragraphs) > 1:
+        chunks = []
+        current_chunk = []
+        current_words = 0
+        for p in paragraphs:
+            p_words = len(p.split())
+            if current_words + p_words > max_words and current_chunk:
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = [p]
+                current_words = p_words
+            else:
+                current_chunk.append(p)
+                current_words += p_words
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+        
+        # Now check if any chunk is STILL too big, and split by words as fallback
+        final_chunks = []
+        for c in chunks:
+            if len(c.split()) > max_words:
+                c_words = c.split()
+                for i in range(0, len(c_words), max_words):
+                    final_chunks.append(' '.join(c_words[i:i+max_words]))
+            else:
+                final_chunks.append(c)
+        return final_chunks
+    
+    # Fallback to word splitting
+    chunks = []
+    for i in range(0, len(words), max_words):
+        chunks.append(' '.join(words[i:i+max_words]))
+    return chunks
+
+
 def parse_claude_export(filepath: str) -> list:
     """Parse Claude's conversations.json export.
 

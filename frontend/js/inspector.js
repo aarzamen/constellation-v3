@@ -6,7 +6,7 @@
 let currentInspectorNode = null;
 let loadedMessages = 10;
 
-function showInspector(node) {
+function showInspector(node, query = '') {
     currentInspectorNode = node;
     loadedMessages = 10;
     const app = document.getElementById('app');
@@ -18,10 +18,10 @@ function showInspector(node) {
     fetch(`/api/conversation/${node.id}`)
         .then(r => r.json())
         .then(conv => {
-            renderInspector(node, conv);
+            renderInspector(node, conv, query);
         })
         .catch(() => {
-            renderInspector(node, null);
+            renderInspector(node, null, query);
         });
 }
 
@@ -55,10 +55,12 @@ function renderInspector(node, conv) {
         const roleClass = m.role === 'user' ? 'user' : 'assistant';
         const textClass = m.role === 'user' ? 'user-text' : '';
         const text = m.text.length > 2000 ? m.text.substring(0, 2000) + '...' : m.text;
+        const escapedText = escapeHtml(text);
+        const highlightedText = highlightQuery(escapedText, query);
         messagesHtml += `
             <div class="chat-message">
                 <div class="chat-role ${roleClass}">${m.role}</div>
-                <div class="chat-text ${textClass}">${escapeHtml(text)}</div>
+                <div class="chat-text ${textClass}">${highlightedText}</div>
             </div>`;
     });
 
@@ -116,4 +118,18 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function highlightQuery(escapedText, query) {
+    if (!query) return escapedText;
+    const terms = query.trim().split(/\s+/).filter(t => t.length > 2);
+    if (terms.length === 0) return escapedText;
+
+    let highlighted = escapedText;
+    terms.forEach(term => {
+        const safeTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${safeTerm})`, 'gi');
+        highlighted = highlighted.replace(regex, '<mark style="background: rgba(121, 87, 217, 0.4); color: inherit; padding: 0 4px; border-radius: 3px; font-weight: bold;">$1</mark>');
+    });
+    return highlighted;
 }

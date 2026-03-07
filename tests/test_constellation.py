@@ -255,7 +255,7 @@ class TestEndToEnd(unittest.TestCase):
 
         # Embed
         embedder = Embedder()
-        embeddings = embed_conversations(conversations, embedder)
+        embeddings, chunk_emb, chunk_map = embed_conversations(conversations, embedder)
         self.assertEqual(embeddings.shape[0], len(conversations))
         self.assertEqual(embeddings.shape[1], 384)
         self.assertFalse(np.any(np.isnan(embeddings)))
