@@ -58,6 +58,26 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
 
         self.send_error(404)
 
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # DELETE /api/conversation/<id>/notes/<note_id>
+        if '/notes/' in path and path.startswith('/api/conversation/'):
+            parts = path.split('/')
+            # ['', 'api', 'conversation', '<id>', 'notes', '<note_id>']
+            if len(parts) == 6:
+                conv_id = parts[3]
+                note_id = parts[5]
+                try:
+                    result = search_engine.delete_note(conv_id, note_id)
+                    self.send_json(result)
+                except Exception as e:
+                    self.send_json({'error': str(e)}, 500)
+                return
+
+        self.send_error(404)
+
     def handle_api_get(self, path, parsed):
         query_params = parse_qs(parsed.query)
 
@@ -65,6 +85,17 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
             conv_id = path.split('/api/conversation/')[1]
             try:
                 result = search_engine.get_conversation(conv_id)
+                self.send_json(result)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+            return
+
+        if path == '/api/conversations':
+            try:
+                offset = int(query_params.get('offset', [0])[0])
+                limit = int(query_params.get('limit', [20])[0])
+                sort_by = query_params.get('sort_by', ['date'])[0]
+                result = search_engine.list_conversations(offset=offset, limit=limit, sort_by=sort_by)
                 self.send_json(result)
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)

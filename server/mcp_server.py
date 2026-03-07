@@ -69,30 +69,98 @@ def get_conversation(conversation_id: str) -> dict:
 
 @mcp.tool()
 def add_conversation_note(conversation_id: str, note_text: str) -> dict:
-    """Explicitly append a note to a conversation.
-    
-    This is a conservative write operation that only adds metadata without
-    altering core graph or embeddings.
-    
+    """Append a note to a conversation. Notes are stored in a sidecar file
+    and survive pipeline rebuilds (re-embedding, re-clustering).
+
     Args:
         conversation_id: UUID of the conversation.
         note_text: The string content of the note.
-        
+
     Returns:
-        Dictionary indicating status.
+        Status dict with the new note and current notes list.
     """
     if not conversation_id or not conversation_id.strip():
         return {"error": "conversation_id cannot be empty"}
     if not note_text or not note_text.strip():
         return {"error": "note_text cannot be empty"}
-        
+
     try:
         return engine.add_note(conversation_id, note_text)
     except Exception as e:
-        import sys
         print(f"Error in add_conversation_note: {e}", file=sys.stderr)
         return {"error": str(e)}
 
 
+@mcp.tool()
+def delete_conversation_note(conversation_id: str, note_id: str) -> dict:
+    """Delete a specific note from a conversation by note ID.
+
+    Args:
+        conversation_id: UUID of the conversation.
+        note_id: The 8-character hex ID of the note to delete.
+
+    Returns:
+        Status dict with remaining notes list, or error if not found.
+    """
+    if not conversation_id or not conversation_id.strip():
+        return {"error": "conversation_id cannot be empty"}
+    if not note_id or not note_id.strip():
+        return {"error": "note_id cannot be empty"}
+
+    try:
+        return engine.delete_note(conversation_id, note_id)
+    except Exception as e:
+        print(f"Error in delete_conversation_note: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def list_conversations(offset: int = 0, limit: int = 20, sort_by: str = "date") -> dict:
+    """Browse conversations with pagination. Use this to discover conversations
+    without needing a search query.
+
+    Args:
+        offset: Starting index for pagination (default 0).
+        limit: Number of results to return, max 50 (default 20).
+        sort_by: Sort order — "date" (newest first), "title" (alphabetical),
+                 or "message_count" (most messages first).
+
+    Returns:
+        Dict with conversations list, total count, offset, and limit.
+    """
+    try:
+        return engine.list_conversations(offset=offset, limit=limit, sort_by=sort_by)
+    except Exception as e:
+        print(f"Error in list_conversations: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def get_stats() -> dict:
+    """Get summary statistics about the conversation memory index.
+
+    Returns:
+        Dict with total conversations, messages, date range, embedding info.
+    """
+    try:
+        return engine.get_stats()
+    except Exception as e:
+        print(f"Error in get_stats: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
 if __name__ == '__main__':
+    # Pre-load embedding model to avoid cold-start latency on first search
+    try:
+        engine.load()
+        import time
+        t0 = time.time()
+        engine._ensure_embedder()
+        # Trigger actual model load by accessing the model
+        if engine.embedder:
+            _ = engine.embedder.model
+        print(f"Model loaded in {time.time() - t0:.1f}s", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: Could not pre-load model: {e}", file=sys.stderr)
+
     mcp.run()

@@ -5,11 +5,13 @@ Shared logic between MCP server and HTTP API.
 
 import json
 import os
+import sys
 
 import numpy as np
 
 from core.config import DATA_DIR
 from core.math_utils import cosine_similarity_query
+from core.notes import load_notes, save_notes, append_note, delete_note as _delete_note, get_notes_for_conversation
 
 
 class SearchEngine:
@@ -72,8 +74,37 @@ class SearchEngine:
                 self.chunk_to_local_idx.append(counts[c_idx])
                 counts[c_idx] += 1
 
+        # Load sidecar notes
+        self.notes = load_notes(self.data_dir)
+
+        # Load cluster metadata
+        self.cluster_meta = {}
+        clusters_path = os.path.join(self.data_dir, 'clusters.json')
+        if os.path.exists(clusters_path):
+            try:
+                with open(clusters_path, 'r') as f:
+                    clusters_data = json.load(f)
+                for cl in clusters_data.get('clusters', []):
+                    self.cluster_meta[cl['id']] = cl
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # Build conversation-to-cluster mapping from graph_data
+        self.conv_cluster = {}
+        graph_path = os.path.join(self.data_dir, 'graph_data.json')
+        if os.path.exists(graph_path):
+            try:
+                with open(graph_path, 'r') as f:
+                    graph_data = json.load(f)
+                for node in graph_data.get('nodes', []):
+                    self.conv_cluster[node['id']] = {
+                        'cluster_id': node.get('cluster', 0),
+                        'cluster_label': node.get('clusterLabel', ''),
+                    }
+            except (json.JSONDecodeError, KeyError):
+                pass
+
         self._loaded = True
-        import sys
         print(f"Loaded {len(self.conversations)} conversations, "
               f"embeddings shape {self.embeddings.shape}, "
               f"chunk blocks {self.chunk_embeddings.shape if self.chunk_embeddings is not None else 'None'}", file=sys.stderr)
@@ -158,6 +189,8 @@ class SearchEngine:
             if not excerpt and conv.get('messages'):
                 excerpt = conv['messages'][0]['text'][:800]
 
+            cluster_info = self.conv_cluster.get(conv['id'], {})
+            conv_notes = self.notes.get(conv['id'], [])
             results.append({
                 'id': conv['id'],
                 'title': conv['name'],
@@ -168,6 +201,9 @@ class SearchEngine:
                 'lexical_score': float(lexical_scores[idx]),
                 'message_count': len(conv.get('messages', [])),
                 'excerpt': excerpt + ('...' if len(excerpt) == 800 else ''),
+                'cluster_id': cluster_info.get('cluster_id', 0),
+                'cluster_label': cluster_info.get('cluster_label', 'Unknown'),
+                'notes_count': len(conv_notes),
             })
         return results
 
@@ -180,14 +216,22 @@ class SearchEngine:
         conv = self.conversation_index.get(conversation_id)
         if not conv:
             return {'error': 'Conversation not found'}
+        cluster_info = self.conv_cluster.get(conversation_id, {})
         return {
             'id': conv['id'],
             'title': conv['name'],
             'date': conv.get('created_at', ''),
             'messages': [
-                {'role': m['role'], 'text': m['text']}
+                {
+                    'role': m['role'],
+                    'text': m['text'],
+                    'timestamp': m.get('created_at', ''),
+                }
                 for m in conv.get('messages', [])
             ],
+            'notes': get_notes_for_conversation(self.data_dir, conversation_id),
+            'cluster_id': cluster_info.get('cluster_id', 0),
+            'cluster_label': cluster_info.get('cluster_label', 'Unknown'),
         }
 
     def get_stats(self) -> dict:
@@ -208,31 +252,83 @@ class SearchEngine:
         }
 
     def add_note(self, conversation_id: str, note_text: str) -> dict:
-        """Append a generic note to a conversation's metadata and save it."""
+        """Append a note to a conversation via sidecar persistence."""
         if not conversation_id or not str(conversation_id).strip():
             return {'error': 'Invalid conversation ID'}
         if not note_text or not str(note_text).strip():
             return {'error': 'Note text cannot be empty'}
-            
+
         self.load()
         conv = self.conversation_index.get(conversation_id)
         if not conv:
             return {'error': f"Conversation {conversation_id} not found."}
-        
-        # Initialize notes array if not present
-        if 'notes' not in conv:
-            conv['notes'] = []
-            
-        import datetime
-        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        conv['notes'].append({'text': note_text, 'created_at': timestamp})
-        
-        # Save explicitly back to conversations.json
-        conv_path = os.path.join(self.data_dir, 'conversations.json')
-        with open(conv_path, 'w') as f:
-            json.dump(self.conversations, f)
-            
-        import sys
+
+        note = append_note(self.data_dir, conversation_id, note_text)
+        # Refresh in-memory cache
+        self.notes = load_notes(self.data_dir)
+
         print(f"Added note to conversation {conversation_id}", file=sys.stderr)
-        
-        return {'status': 'success', 'conversation_id': conversation_id, 'note': note_text}
+        return {
+            'status': 'success',
+            'conversation_id': conversation_id,
+            'note': note,
+            'notes': get_notes_for_conversation(self.data_dir, conversation_id),
+        }
+
+    def delete_note(self, conversation_id: str, note_id: str) -> dict:
+        """Delete a note by note_id."""
+        if not conversation_id or not str(conversation_id).strip():
+            return {'error': 'Invalid conversation ID'}
+        if not note_id or not str(note_id).strip():
+            return {'error': 'Invalid note ID'}
+
+        self.load()
+        success = _delete_note(self.data_dir, conversation_id, note_id)
+        # Refresh in-memory cache
+        self.notes = load_notes(self.data_dir)
+
+        if success:
+            print(f"Deleted note {note_id} from conversation {conversation_id}", file=sys.stderr)
+            return {
+                'status': 'success',
+                'conversation_id': conversation_id,
+                'notes': get_notes_for_conversation(self.data_dir, conversation_id),
+            }
+        return {'error': f"Note {note_id} not found in conversation {conversation_id}"}
+
+    def list_conversations(self, offset=0, limit=20, sort_by="date"):
+        """List conversations with pagination."""
+        self.load()
+
+        limit = min(max(1, int(limit)), 50)
+        offset = max(0, int(offset))
+
+        convs = list(self.conversations)
+        if sort_by == "title":
+            convs.sort(key=lambda c: c.get('name', '').lower())
+        elif sort_by == "message_count":
+            convs.sort(key=lambda c: len(c.get('messages', [])), reverse=True)
+        else:  # date (newest first)
+            convs.sort(key=lambda c: c.get('created_at', ''), reverse=True)
+
+        total = len(convs)
+        page = convs[offset:offset + limit]
+
+        items = []
+        for c in page:
+            cluster_info = self.conv_cluster.get(c['id'], {})
+            items.append({
+                'id': c['id'],
+                'title': c.get('name', ''),
+                'date': c.get('created_at', ''),
+                'message_count': len(c.get('messages', [])),
+                'has_notes': len(self.notes.get(c['id'], [])) > 0,
+                'cluster_id': cluster_info.get('cluster_id', 0),
+            })
+
+        return {
+            'conversations': items,
+            'total': total,
+            'offset': offset,
+            'limit': limit,
+        }
