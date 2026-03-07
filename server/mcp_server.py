@@ -36,7 +36,10 @@ def search_conversations(query: str, top_k: int = 5) -> list:
         List of matching conversations with title, date, relevance score,
         and message excerpts.
     """
+    if not query or not query.strip():
+        return [{"error": "Search query cannot be empty"}]
     try:
+        top_k = int(top_k)
         return engine.search(query, top_k)
     except Exception as e:
         import sys
@@ -54,6 +57,8 @@ def get_conversation(conversation_id: str) -> dict:
     Returns:
         Full conversation with all messages.
     """
+    if not conversation_id or not conversation_id.strip():
+        return {"error": "conversation_id cannot be empty"}
     try:
         return engine.get_conversation(conversation_id)
     except Exception as e:
@@ -76,6 +81,11 @@ def add_conversation_note(conversation_id: str, note_text: str) -> dict:
     Returns:
         Dictionary indicating status.
     """
+    if not conversation_id or not conversation_id.strip():
+        return {"error": "conversation_id cannot be empty"}
+    if not note_text or not note_text.strip():
+        return {"error": "note_text cannot be empty"}
+        
     try:
         return engine.add_note(conversation_id, note_text)
     except Exception as e:
