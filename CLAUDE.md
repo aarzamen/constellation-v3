@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Constellation is a **self-hosted semantic memory server** for AI conversation history exports (currently Claude-only). It provides:
+Constellation is a **self-hosted semantic memory server** for AI conversation history exports (Claude, ChatGPT, Gemini, Grok). It provides:
 1. A local embedding + clustering pipeline (Python/numpy)
 2. An MCP-compatible memory server for LLM clients (via `fastmcp` over stdio)
 3. A REST API for search/retrieval
@@ -32,13 +32,17 @@ Constellation is a **self-hosted semantic memory server** for AI conversation hi
 
 ```
 launch.py
-    ├── core/parser.py      → Parse Claude JSON export, chunk user messages
-    ├── core/embedder.py    → sentence-transformers wrapper (all-MiniLM-L6-v2, 384d)
-    ├── core/indexer.py     → KMeans clustering, PCA projection, graph generation
-    ├── core/math_utils.py  → Pure numpy: kmeans++, silhouette, cosine sim, PCA
-    ├── core/lexical.py     → BM25 inverted index (pure Python)
-    ├── core/notes.py       → Sidecar note persistence (data/notes.json)
-    ├── core/config.py      → YAML config management
+    ├── core/parser.py          → Parse Claude JSON export, chunk user messages
+    ├── core/chatgpt_parser.py  → Parse ChatGPT tree-structured export
+    ├── core/gemini_parser.py   → Parse Gemini AI Studio folder of chat files
+    ├── core/grok_parser.py     → Grok stub parser with format auto-detection
+    ├── core/provider_registry.py → Provider-agnostic parser registry
+    ├── core/embedder.py        → sentence-transformers wrapper (all-MiniLM-L6-v2, 384d)
+    ├── core/indexer.py         → KMeans clustering, PCA projection, graph generation
+    ├── core/math_utils.py      → Pure numpy: kmeans++, silhouette, cosine sim, PCA
+    ├── core/lexical.py         → BM25 inverted index (pure Python)
+    ├── core/notes.py           → Sidecar note persistence (data/notes.json)
+    ├── core/config.py          → YAML config management
     │
     ├── server/api.py       → SearchEngine class (hybrid RRF search, notes)
     ├── server/http_server.py → stdlib HTTPServer + REST endpoints
@@ -57,6 +61,48 @@ frontend/
 ```
 
 **Total codebase: ~3,900 lines** (Python ~1,500 / JS ~1,040 / CSS ~790 / Tests ~320 / HTML ~180).
+
+## Multi-Provider Support
+
+Constellation indexes conversations from multiple AI providers in a unified
+semantic space. Conversations cluster by **topic**, not by provider.
+
+### Supported Providers
+
+| Provider | Parser | Format | Visual Shape |
+|---|---|---|---|
+| **Claude** (Anthropic) | `core/parser.py` | Flat message array, ISO timestamps | Sphere |
+| **ChatGPT** (OpenAI) | `core/chatgpt_parser.py` | DAG/tree with `mapping` field, Unix epoch | Octahedron |
+| **Gemini** (Google) | `core/gemini_parser.py` | Folder of extensionless JSON files | Dodecahedron |
+| **Grok** (xAI) | `core/grok_parser.py` | Stub — format auto-detection | Icosahedron |
+
+### Ingesting Additional Providers
+
+```bash
+# Add ChatGPT data
+python launch.py --chatgpt-source /path/to/chatgpt/conversations.json
+
+# Generic multi-provider flag
+python launch.py --add-source chatgpt /path/to/chatgpt/conversations.json
+python launch.py --add-source gemini /path/to/gemini/folder
+```
+
+After first run, source paths are saved in `config.yaml` under `sources:` and
+automatically included in subsequent runs without requiring CLI flags.
+
+### ChatGPT Export Notes
+
+- File uses a tree structure (`mapping` field with parent/children references)
+- Parser linearizes using `current_node` backward traversal — only the active branch is extracted
+- System messages, tool outputs, and DALL-E generations are skipped
+- Deleted messages (weight=0) are excluded
+
+### Gemini AI Studio Notes
+
+- Each conversation is a separate extensionless JSON file in a Google Drive folder
+- Parser scans directory, detects valid chat files by checking for `chunkedPrompt` marker
+- Thinking blocks (`isThought: true`) are excluded
+- No per-message timestamps (only conversation-level)
 
 ## Key Design Constraints
 
