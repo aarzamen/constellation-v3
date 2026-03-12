@@ -19,7 +19,7 @@ Constellation is a **self-hosted semantic memory server** for AI conversation hi
 | Entry point | `launch.py` |
 | Python version | 3.9+ (developed on 3.12) |
 | Package manager | pip (no lock file; `uv` used locally) |
-| Dependencies | `requirements.txt` (4 packages: numpy, sentence-transformers, pyyaml, fastmcp) |
+| Dependencies | `requirements.txt` (5 packages: numpy, sentence-transformers, pyyaml, fastmcp, customtkinter) |
 | Tests | `python -m pytest tests/` or `python -m unittest tests/test_constellation.py` |
 | Run server | `python3 launch.py` (full) or `python3 launch.py --headless` (API only) |
 | MCP server | `python3 server/mcp_server.py` (standalone subprocess via stdio) |
@@ -42,11 +42,14 @@ launch.py
     ├── core/math_utils.py      → Pure numpy: kmeans++, silhouette, cosine sim, PCA
     ├── core/lexical.py         → BM25 inverted index (pure Python)
     ├── core/notes.py           → Sidecar note persistence (data/notes.json)
+    ├── core/logger.py          → Structured logging (JSON file + stderr)
     ├── core/config.py          → YAML config management
     │
     ├── server/api.py       → SearchEngine class (hybrid RRF search, notes)
     ├── server/http_server.py → stdlib HTTPServer + REST endpoints
     └── server/mcp_server.py  → FastMCP stdio server (standalone subprocess)
+
+constellation_helper.py       → macOS GUI control panel (customtkinter)
 
 frontend/
     ├── index.html          → Single page, loads CDN libs + local JS
@@ -60,7 +63,7 @@ frontend/
         └── starfield.js    → Background star renderer
 ```
 
-**Total codebase: ~3,900 lines** (Python ~1,500 / JS ~1,040 / CSS ~790 / Tests ~320 / HTML ~180).
+**Total codebase: ~5,500 lines** (Python ~2,400 / JS ~1,150 / CSS ~790 / Tests ~900 / HTML ~180).
 
 ## Multi-Provider Support
 
@@ -103,6 +106,37 @@ automatically included in subsequent runs without requiring CLI flags.
 - Parser scans directory, detects valid chat files by checking for `chunkedPrompt` marker
 - Thinking blocks (`isThought: true`) are excluded
 - No per-message timestamps (only conversation-level)
+
+## Constellation Helper
+
+The helper app is a macOS control panel for managing Constellation servers.
+
+```bash
+python constellation_helper.py
+```
+
+Features:
+- Start/stop REST and MCP servers as background processes
+- View server status, uptime, and corpus stats
+- See and copy MCP connection URLs and config JSON
+- Add data sources (Claude, ChatGPT, Gemini, Grok)
+- Re-embed data with progress indicator
+- Start/stop Cloudflare Tunnel for remote access
+- Closing the helper does NOT stop the servers
+
+The helper uses customtkinter for the GUI. Install: `pip install customtkinter`
+
+## Structured Logging
+
+All server-side logging is routed through `core/logger.py`:
+- **File output**: JSON lines to `data/logs/constellation.log` (5MB rotating, 3 backups)
+- **Stderr output**: Human-readable `[HH:MM:SS] LEVEL module: message`
+- **Log level**: Configurable via `CONSTELLATION_LOG_LEVEL` env var (default: INFO)
+- **Instrumentation**: Search queries include `duration_ms`, `query`, `results` count
+
+API endpoints:
+- `GET /api/server-info` — uptime, PID, ports, provider breakdown, data source paths
+- `GET /api/logs?n=50&level=INFO` — last N log entries as JSON
 
 ## Key Design Constraints
 
