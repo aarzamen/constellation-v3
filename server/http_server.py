@@ -5,6 +5,7 @@ Serves static frontend files + REST API.
 
 import json
 import os
+import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -16,6 +17,7 @@ from server.api import SearchEngine
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'frontend')
 
 search_engine = SearchEngine()
+_server_start_time = time.time()
 
 
 class ConstellationHandler(SimpleHTTPRequestHandler):
@@ -120,6 +122,24 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
                 self.send_json({'error': str(e)}, 500)
             return
 
+        if path == '/api/server-info':
+            try:
+                result = self.handle_server_info()
+                self.send_json(result)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+            return
+
+        if path == '/api/logs':
+            try:
+                n = int(query_params.get('n', [50])[0])
+                level = query_params.get('level', [None])[0]
+                result = self.handle_logs(n, level)
+                self.send_json(result)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+            return
+
         self.send_error(404)
 
     def handle_search(self):
@@ -134,6 +154,64 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
             self.send_json(results)
         except Exception as e:
             self.send_json({'error': str(e)}, 500)
+
+    def handle_server_info(self):
+        """Return server status, uptime, PID, ports, data source info."""
+        elapsed = time.time() - _server_start_time
+        hours = int(elapsed // 3600)
+        mins = int((elapsed % 3600) // 60)
+
+        stats = search_engine.get_stats() if search_engine._loaded else {}
+
+        from core.config import ensure_config
+        config = ensure_config()
+        sources = {}
+        claude_path = config.get('source', {}).get('path', '')
+        if claude_path:
+            sources['claude'] = claude_path
+        for provider, info in config.get('sources', {}).items():
+            if isinstance(info, dict):
+                sources[provider] = info.get('path', '')
+
+        return {
+            'pid': os.getpid(),
+            'uptime_seconds': elapsed,
+            'uptime_formatted': f'{hours}h {mins:02d}m',
+            'port': config.get('server', {}).get('port', 8420),
+            'total_conversations': stats.get('totalConversations', 0),
+            'total_messages': stats.get('totalMessages', 0),
+            'providers': stats.get('providers', {}),
+            'date_range': stats.get('dateRange', ['', '']),
+            'embedding_model': stats.get('embeddingModel', ''),
+            'data_sources': sources,
+            'log_file': os.path.join(DATA_DIR, 'logs', 'constellation.log'),
+        }
+
+    def handle_logs(self, n=50, level=None):
+        """Return last N log entries from the JSON log file."""
+        log_path = os.path.join(DATA_DIR, 'logs', 'constellation.log')
+        if not os.path.exists(log_path):
+            return {'entries': [], 'total': 0}
+
+        entries = []
+        try:
+            with open(log_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if level and entry.get('level', '') != level:
+                            continue
+                        entries.append(entry)
+                    except json.JSONDecodeError:
+                        entries.append({'message': line, 'level': 'RAW'})
+        except Exception:
+            pass
+
+        # Return last N entries
+        return {'entries': entries[-n:], 'total': len(entries)}
 
     def handle_recluster(self, k):
         """Re-cluster with a new K value and return updated graph data."""
