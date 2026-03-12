@@ -2,6 +2,10 @@
 
 Local model: all-MiniLM-L6-v2 via sentence-transformers.
 Clean interface for future extensibility.
+
+# TODO: Evaluate Gemini Embedding 2 for future multimodal support
+# 3072-dim, Matryoshka, text+image+video+audio in one space
+# Would require full re-embed (incompatible with MiniLM-L6-v2 384-dim)
 """
 
 import numpy as np
