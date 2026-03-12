@@ -19,6 +19,7 @@ async function init() {
         initGraph(appData);
         initTimeline(appData.timeline, appData.clusters);
         initSearch();
+        buildProviderList();
         buildClusterList();
         buildControls();
         updateTopBar(appData.stats);
@@ -54,6 +55,8 @@ function updateStatusBar(visibleCount) {
     set('stat-nodes', visibleCount.toLocaleString());
     set('stat-edges', (stats.edgeCount || appData.edges.length).toLocaleString());
     set('stat-clusters', stats.clusterCount);
+    const providerCount = new Set(appData.nodes.map(n => n.provider || 'claude')).size;
+    set('stat-providers', providerCount);
     set('stat-messages', stats.totalMessages.toLocaleString());
     set('stat-dim', stats.embeddingDim);
     set('stat-model', stats.embeddingModel);
@@ -62,6 +65,57 @@ function updateStatusBar(visibleCount) {
         const fmt = d => d.substring(0, 7); // YYYY-MM
         set('stat-range', `${fmt(stats.dateRange[0])} \u2192 ${fmt(stats.dateRange[1])}`);
     }
+}
+
+var PROVIDER_COLORS = {
+    claude: '#7957d9',
+    chatgpt: '#10a37f',
+    gemini: '#d9a857',
+    grok: '#d97957',
+};
+var PROVIDER_LABELS = {
+    claude: 'Claude',
+    chatgpt: 'ChatGPT',
+    gemini: 'Gemini',
+    grok: 'Grok',
+};
+
+function buildProviderList() {
+    var container = document.getElementById('provider-list');
+    var section = document.getElementById('provider-section');
+    if (!container || !section || !appData) return;
+
+    var providerCounts = {};
+    appData.nodes.forEach(function(n) {
+        var p = n.provider || 'claude';
+        providerCounts[p] = (providerCounts[p] || 0) + 1;
+    });
+
+    var providers = Object.keys(providerCounts);
+    if (providers.length <= 1) {
+        section.style.display = 'none';
+        return;
+    }
+    section.style.display = 'block';
+
+    container.innerHTML = providers.map(function(p) {
+        return '<div class="cluster-item ' + (filteredProviders.has(p) ? 'disabled' : '') + '"'
+             + ' onclick="toggleProvider(\'' + p + '\')">'
+             + '<span class="cluster-dot" style="background: ' + (PROVIDER_COLORS[p] || '#888') + '"></span>'
+             + '<span>' + (PROVIDER_LABELS[p] || p) + '</span>'
+             + '<span class="cluster-count">' + providerCounts[p] + '</span>'
+             + '</div>';
+    }).join('');
+}
+
+function toggleProvider(provider) {
+    if (filteredProviders.has(provider)) {
+        filteredProviders.delete(provider);
+    } else {
+        filteredProviders.add(provider);
+    }
+    buildProviderList();
+    applyFilters();
 }
 
 function buildClusterList() {

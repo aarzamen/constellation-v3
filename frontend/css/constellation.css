@@ -28,6 +28,12 @@
     --accent-quasar: #d957a8;
     --accent-corona: #d97957;
 
+    /* Provider accents */
+    --accent-chatgpt: #10a37f;
+    --accent-chatgpt-dim: #0d8c6d;
+    --accent-gemini: #d9a857;
+    --accent-gemini-dim: #b8893d;
+
     /* Functional */
     --border: #2a2a3e;
     --glow: rgba(121, 87, 217, 0.3);

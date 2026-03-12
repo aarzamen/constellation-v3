@@ -80,6 +80,12 @@ function renderInspector(node, conv) {
         </div>
         <div class="inspector-meta">
             <div class="meta-item">
+                <div class="meta-label">Provider</div>
+                <div class="meta-value" style="color: ${node.provider === 'chatgpt' ? '#10a37f' : node.provider === 'gemini' ? '#d9a857' : node.provider === 'grok' ? '#d97957' : '#7957d9'}">
+                    ${node.provider === 'chatgpt' ? 'ChatGPT' : node.provider === 'gemini' ? 'Gemini' : node.provider === 'grok' ? 'Grok' : 'Claude'}
+                </div>
+            </div>
+            <div class="meta-item">
                 <div class="meta-label">Date</div>
                 <div class="meta-value">${node.date}</div>
             </div>

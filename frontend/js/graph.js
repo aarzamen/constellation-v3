@@ -7,6 +7,7 @@ let Graph = null;
 let graphData = null;
 let activeLayout = '3d-force';
 let filteredClusters = new Set();
+let filteredProviders = new Set();
 let timelineFilter = null;
 
 function nodeSize(node) {
@@ -21,7 +22,13 @@ function initGraph(data) {
     Graph = ForceGraph3D()(container)
         .graphData({ nodes: [], links: [] })
         .nodeId('id')
-        .nodeLabel(node => `${node.name}\n${node.messageCount} messages \u00b7 ${node.date}`)
+        .nodeLabel(node => {
+            const providerLabel = node.provider === 'chatgpt' ? 'ChatGPT'
+                                : node.provider === 'gemini' ? 'Gemini'
+                                : node.provider === 'grok' ? 'Grok'
+                                : 'Claude';
+            return `${node.name}\n${providerLabel} \u00b7 ${node.messageCount} messages \u00b7 ${node.date}`;
+        })
         .nodeColor(node => node.color)
         .nodeVal(node => Math.log(node.messageCount + 1) * 3)
         .nodeOpacity(0.9)
@@ -42,12 +49,20 @@ function initGraph(data) {
         .d3VelocityDecay(0.3);
 
     // Custom node rendering with LOD (Level of Detail)
+    // Shape encodes provider: Claude=Sphere, ChatGPT=Octahedron, Gemini=Dodecahedron, Grok=Icosahedron
     Graph.nodeThreeObject(node => {
         const size = nodeSize(node);
         const lod = new THREE.LOD();
 
+        const isGPT = node.provider === 'chatgpt';
+        const isGemini = node.provider === 'gemini';
+        const isGrok = node.provider === 'grok';
+
         // High detail: glossy phong material
-        const highGeo = new THREE.SphereGeometry(size, 16, 16);
+        const highGeo = isGemini ? new THREE.DodecahedronGeometry(size)
+                      : isGrok ? new THREE.IcosahedronGeometry(size)
+                      : isGPT ? new THREE.OctahedronGeometry(size)
+                      : new THREE.SphereGeometry(size, 16, 16);
         const highMat = new THREE.MeshPhongMaterial({
             color: node.color,
             emissive: node.color,
@@ -59,7 +74,10 @@ function initGraph(data) {
         lod.addLevel(highMesh, 0);
 
         // Low detail: basic reduced geometry for massive scale performance
-        const lowGeo = new THREE.SphereGeometry(size, 5, 5);
+        const lowGeo = isGemini ? new THREE.DodecahedronGeometry(size)
+                     : isGrok ? new THREE.IcosahedronGeometry(size)
+                     : isGPT ? new THREE.OctahedronGeometry(size)
+                     : new THREE.SphereGeometry(size, 5, 5);
         const lowMat = new THREE.MeshBasicMaterial({
             color: node.color,
             transparent: true,
@@ -130,14 +148,17 @@ function applyFilters() {
 
     // Filter by cluster
     if (filteredClusters.size > 0) {
-        const activeIds = new Set();
-        nodes = nodes.filter(n => {
-            if (!filteredClusters.has(n.cluster)) {
-                activeIds.add(n.id);
-                return true;
-            }
-            return false;
-        });
+        nodes = nodes.filter(n => !filteredClusters.has(n.cluster));
+    }
+
+    // Filter by provider
+    if (filteredProviders.size > 0) {
+        nodes = nodes.filter(n => !filteredProviders.has(n.provider || 'claude'));
+    }
+
+    // Re-filter edges to match remaining nodes
+    if (filteredClusters.size > 0 || filteredProviders.size > 0) {
+        const activeIds = new Set(nodes.map(n => n.id));
         edges = edges.filter(e => activeIds.has(e.source) && activeIds.has(e.target));
     }
 
