@@ -115,11 +115,17 @@ class SearchEngine:
             from core.embedder import Embedder
             self.embedder = Embedder()
 
-    def search(self, query: str, top_k: int = 5) -> list:
-        """Hybrid exact + semantic search over conversation history."""
+    def search(self, query: str, top_k: int = 5, provider: str = None) -> list:
+        """Hybrid exact + semantic search over conversation history.
+
+        Args:
+            query: Search query text.
+            top_k: Number of results to return.
+            provider: Optional filter — 'claude', 'chatgpt', or None for all.
+        """
         if not query or not query.strip():
             return []
-            
+
         try:
             top_k = int(top_k)
             if top_k < 1: top_k = 5
@@ -165,7 +171,9 @@ class SearchEngine:
                 if conv_best_chunk_score[idx] > 0:
                     rrf_scores[idx] += 1.0 / (k_rrf + rank + 1)
 
-        top_indices = np.argsort(rrf_scores)[::-1][:top_k]
+        # Fetch more results if filtering by provider to compensate
+        fetch_k = top_k * 3 if provider else top_k
+        top_indices = np.argsort(rrf_scores)[::-1][:fetch_k]
 
         results = []
         for idx in top_indices:
@@ -195,6 +203,7 @@ class SearchEngine:
                 'id': conv['id'],
                 'title': conv['name'],
                 'date': conv.get('created_at', ''),
+                'provider': conv.get('provider', 'claude'),
                 'score': float(rrf_scores[idx]),
                 'conversation_score': float(semantic_scores[idx]),
                 'chunk_score': float(conv_best_chunk_score[idx]) if has_chunks else 0.0,
@@ -205,7 +214,11 @@ class SearchEngine:
                 'cluster_label': cluster_info.get('cluster_label', 'Unknown'),
                 'notes_count': len(conv_notes),
             })
-        return results
+
+        if provider:
+            results = [r for r in results if r.get('provider') == provider]
+
+        return results[:top_k]
 
     def get_conversation(self, conversation_id: str) -> dict:
         """Retrieve full conversation by ID."""
@@ -221,6 +234,7 @@ class SearchEngine:
             'id': conv['id'],
             'title': conv['name'],
             'date': conv.get('created_at', ''),
+            'provider': conv.get('provider', 'claude'),
             'messages': [
                 {
                     'role': m['role'],
@@ -243,12 +257,19 @@ class SearchEngine:
             ca = c.get('created_at', '')
             if ca:
                 dates.append(ca[:10])
+
+        provider_counts = {}
+        for c in self.conversations:
+            p = c.get('provider', 'claude')
+            provider_counts[p] = provider_counts.get(p, 0) + 1
+
         return {
             'totalConversations': len(self.conversations),
             'totalMessages': total_messages,
             'dateRange': [min(dates), max(dates)] if dates else ['', ''],
             'embeddingModel': 'all-MiniLM-L6-v2',
             'embeddingDim': self.embeddings.shape[1] if self.embeddings is not None else 0,
+            'providers': provider_counts,
         }
 
     def add_note(self, conversation_id: str, note_text: str) -> dict:
@@ -296,14 +317,18 @@ class SearchEngine:
             }
         return {'error': f"Note {note_id} not found in conversation {conversation_id}"}
 
-    def list_conversations(self, offset=0, limit=20, sort_by="date"):
-        """List conversations with pagination."""
+    def list_conversations(self, offset=0, limit=20, sort_by="date", provider=None):
+        """List conversations with pagination and optional provider filtering."""
         self.load()
 
         limit = min(max(1, int(limit)), 50)
         offset = max(0, int(offset))
 
         convs = list(self.conversations)
+
+        if provider:
+            convs = [c for c in convs if c.get('provider', 'claude') == provider]
+
         if sort_by == "title":
             convs.sort(key=lambda c: c.get('name', '').lower())
         elif sort_by == "message_count":
@@ -321,6 +346,7 @@ class SearchEngine:
                 'id': c['id'],
                 'title': c.get('name', ''),
                 'date': c.get('created_at', ''),
+                'provider': c.get('provider', 'claude'),
                 'message_count': len(c.get('messages', [])),
                 'has_notes': len(self.notes.get(c['id'], [])) > 0,
                 'cluster_id': cluster_info.get('cluster_id', 0),

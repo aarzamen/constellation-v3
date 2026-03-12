@@ -95,7 +95,9 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
                 offset = int(query_params.get('offset', [0])[0])
                 limit = int(query_params.get('limit', [20])[0])
                 sort_by = query_params.get('sort_by', ['date'])[0]
-                result = search_engine.list_conversations(offset=offset, limit=limit, sort_by=sort_by)
+                provider = query_params.get('provider', [None])[0]
+                result = search_engine.list_conversations(offset=offset, limit=limit,
+                                                          sort_by=sort_by, provider=provider)
                 self.send_json(result)
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)
@@ -127,7 +129,8 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
             data = json.loads(body)
             query = data.get('query', '')
             top_k = data.get('top_k', 5)
-            results = search_engine.search(query, top_k)
+            provider = data.get('provider', None)
+            results = search_engine.search(query, top_k, provider=provider)
             self.send_json(results)
         except Exception as e:
             self.send_json({'error': str(e)}, 500)

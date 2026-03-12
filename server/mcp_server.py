@@ -25,24 +25,29 @@ engine = SearchEngine()
 
 
 @mcp.tool()
-def search_conversations(query: str, top_k: int = 5) -> list:
+def search_conversations(query: str, top_k: int = 5, provider: str = None) -> list:
     """Search conversation history by semantic similarity.
+
+    Searches across all ingested AI providers (Claude, ChatGPT) in a unified
+    semantic embedding space. Conversations cluster by topic, not by provider.
+    Results include a 'provider' field ('claude' or 'chatgpt') indicating
+    which AI the conversation was with.
 
     Args:
         query: Natural language description of what you're looking for.
         top_k: Number of results to return (default 5).
+        provider: Optional filter — 'claude', 'chatgpt', or None for all.
 
     Returns:
         List of matching conversations with title, date, relevance score,
-        and message excerpts.
+        provider, and message excerpts.
     """
     if not query or not query.strip():
         return [{"error": "Search query cannot be empty"}]
     try:
         top_k = int(top_k)
-        return engine.search(query, top_k)
+        return engine.search(query, top_k, provider=provider)
     except Exception as e:
-        import sys
         print(f"Error in search_conversations: {e}", file=sys.stderr)
         return [{"error": str(e)}]
 
@@ -51,18 +56,20 @@ def search_conversations(query: str, top_k: int = 5) -> list:
 def get_conversation(conversation_id: str) -> dict:
     """Retrieve the full text of a specific conversation by ID.
 
+    Works for conversations from any ingested provider (Claude or ChatGPT).
+    The response includes a 'provider' field indicating the source.
+
     Args:
         conversation_id: UUID of the conversation.
 
     Returns:
-        Full conversation with all messages.
+        Full conversation with all messages and provider info.
     """
     if not conversation_id or not conversation_id.strip():
         return {"error": "conversation_id cannot be empty"}
     try:
         return engine.get_conversation(conversation_id)
     except Exception as e:
-        import sys
         print(f"Error in get_conversation: {e}", file=sys.stderr)
         return {"error": str(e)}
 
@@ -115,21 +122,26 @@ def delete_conversation_note(conversation_id: str, note_id: str) -> dict:
 
 
 @mcp.tool()
-def list_conversations(offset: int = 0, limit: int = 20, sort_by: str = "date") -> dict:
-    """Browse conversations with pagination. Use this to discover conversations
-    without needing a search query.
+def list_conversations(offset: int = 0, limit: int = 20, sort_by: str = "date",
+                       provider: str = None) -> dict:
+    """Browse conversations with pagination.
+
+    Lists conversations from all ingested providers. Each result includes
+    a 'provider' field. Use sort_by to order results.
 
     Args:
         offset: Starting index for pagination (default 0).
         limit: Number of results to return, max 50 (default 20).
         sort_by: Sort order — "date" (newest first), "title" (alphabetical),
                  or "message_count" (most messages first).
+        provider: Optional filter — 'claude', 'chatgpt', or None for all.
 
     Returns:
         Dict with conversations list, total count, offset, and limit.
     """
     try:
-        return engine.list_conversations(offset=offset, limit=limit, sort_by=sort_by)
+        return engine.list_conversations(offset=offset, limit=limit,
+                                         sort_by=sort_by, provider=provider)
     except Exception as e:
         print(f"Error in list_conversations: {e}", file=sys.stderr)
         return {"error": str(e)}
@@ -139,8 +151,12 @@ def list_conversations(offset: int = 0, limit: int = 20, sort_by: str = "date") 
 def get_stats() -> dict:
     """Get summary statistics about the conversation memory index.
 
+    Returns total counts, date range, embedding info, and per-provider
+    breakdown (e.g., {'claude': 975, 'chatgpt': 1247}).
+
     Returns:
-        Dict with total conversations, messages, date range, embedding info.
+        Dict with total conversations, messages, date range, embedding info,
+        and providers breakdown.
     """
     try:
         return engine.get_stats()
