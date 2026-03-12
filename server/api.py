@@ -6,12 +6,16 @@ Shared logic between MCP server and HTTP API.
 import json
 import os
 import sys
+import time
 
 import numpy as np
 
 from core.config import DATA_DIR
+from core.logger import get_logger
 from core.math_utils import cosine_similarity_query
 from core.notes import load_notes, append_note, delete_note as _delete_note, get_notes_for_conversation
+
+logger = get_logger(__name__)
 
 
 class SearchEngine:
@@ -105,9 +109,10 @@ class SearchEngine:
                 pass
 
         self._loaded = True
-        print(f"Loaded {len(self.conversations)} conversations, "
-              f"embeddings shape {self.embeddings.shape}, "
-              f"chunk blocks {self.chunk_embeddings.shape if self.chunk_embeddings is not None else 'None'}", file=sys.stderr)
+        logger.info("Index loaded", extra={
+            'conversations': len(self.conversations),
+            'messages': sum(len(c.get('messages', [])) for c in self.conversations),
+        })
 
     def _ensure_embedder(self):
         """Lazy-load the embedding model for query embedding."""
@@ -135,6 +140,7 @@ class SearchEngine:
         self.load()
         self._ensure_embedder()
 
+        t0 = time.time()
         query_embedding = self.embedder.embed_query(query)
         semantic_scores = cosine_similarity_query(query_embedding, self.embeddings)
         lexical_scores = self.bm25.get_scores(query)
@@ -218,7 +224,13 @@ class SearchEngine:
         if provider:
             results = [r for r in results if r.get('provider') == provider]
 
-        return results[:top_k]
+        results = results[:top_k]
+        duration_ms = (time.time() - t0) * 1000
+        logger.info("Search completed", extra={
+            'query': query[:100], 'top_k': top_k, 'results': len(results),
+            'duration_ms': round(duration_ms, 1), 'provider': provider,
+        })
+        return results
 
     def get_conversation(self, conversation_id: str) -> dict:
         """Retrieve full conversation by ID."""
@@ -288,7 +300,7 @@ class SearchEngine:
         # Refresh in-memory cache
         self.notes = load_notes(self.data_dir)
 
-        print(f"Added note to conversation {conversation_id}", file=sys.stderr)
+        logger.info("Note added", extra={'conversation_id': conversation_id})
         return {
             'status': 'success',
             'conversation_id': conversation_id,
@@ -309,7 +321,7 @@ class SearchEngine:
         self.notes = load_notes(self.data_dir)
 
         if success:
-            print(f"Deleted note {note_id} from conversation {conversation_id}", file=sys.stderr)
+            logger.info("Note deleted", extra={'conversation_id': conversation_id, 'note_id': note_id})
             return {
                 'status': 'success',
                 'conversation_id': conversation_id,

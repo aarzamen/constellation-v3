@@ -18,7 +18,10 @@ sys.path.insert(0, PROJECT_ROOT)
 os.environ.setdefault('CONSTELLATION_DATA_DIR', os.path.join(PROJECT_ROOT, 'data'))
 
 from fastmcp import FastMCP
+from core.logger import get_logger
 from server.api import SearchEngine
+
+logger = get_logger('mcp')
 
 mcp = FastMCP("Constellation Memory")
 engine = SearchEngine()
@@ -48,7 +51,7 @@ def search_conversations(query: str, top_k: int = 5, provider: str = None) -> li
         top_k = int(top_k)
         return engine.search(query, top_k, provider=provider)
     except Exception as e:
-        print(f"Error in search_conversations: {e}", file=sys.stderr)
+        logger.error("search_conversations failed", extra={'error': str(e)})
         return [{"error": str(e)}]
 
 
@@ -70,7 +73,7 @@ def get_conversation(conversation_id: str) -> dict:
     try:
         return engine.get_conversation(conversation_id)
     except Exception as e:
-        print(f"Error in get_conversation: {e}", file=sys.stderr)
+        logger.error("get_conversation failed", extra={'error': str(e)})
         return {"error": str(e)}
 
 
@@ -94,7 +97,7 @@ def add_conversation_note(conversation_id: str, note_text: str) -> dict:
     try:
         return engine.add_note(conversation_id, note_text)
     except Exception as e:
-        print(f"Error in add_conversation_note: {e}", file=sys.stderr)
+        logger.error("add_conversation_note failed", extra={'error': str(e)})
         return {"error": str(e)}
 
 
@@ -117,7 +120,7 @@ def delete_conversation_note(conversation_id: str, note_id: str) -> dict:
     try:
         return engine.delete_note(conversation_id, note_id)
     except Exception as e:
-        print(f"Error in delete_conversation_note: {e}", file=sys.stderr)
+        logger.error("delete_conversation_note failed", extra={'error': str(e)})
         return {"error": str(e)}
 
 
@@ -143,7 +146,7 @@ def list_conversations(offset: int = 0, limit: int = 20, sort_by: str = "date",
         return engine.list_conversations(offset=offset, limit=limit,
                                          sort_by=sort_by, provider=provider)
     except Exception as e:
-        print(f"Error in list_conversations: {e}", file=sys.stderr)
+        logger.error("list_conversations failed", extra={'error': str(e)})
         return {"error": str(e)}
 
 
@@ -161,7 +164,7 @@ def get_stats() -> dict:
     try:
         return engine.get_stats()
     except Exception as e:
-        print(f"Error in get_stats: {e}", file=sys.stderr)
+        logger.error("get_stats failed", extra={'error': str(e)})
         return {"error": str(e)}
 
 
@@ -175,8 +178,8 @@ if __name__ == '__main__':
         # Trigger actual model load by accessing the model
         if engine.embedder:
             _ = engine.embedder.model
-        print(f"Model loaded in {time.time() - t0:.1f}s", file=sys.stderr)
+        logger.info("Model pre-loaded", extra={'duration_ms': round((time.time() - t0) * 1000, 1)})
     except Exception as e:
-        print(f"Warning: Could not pre-load model: {e}", file=sys.stderr)
+        logger.warning(f"Could not pre-load model: {e}")
 
     mcp.run()
