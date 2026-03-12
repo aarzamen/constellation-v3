@@ -254,69 +254,143 @@ function setLayout(mode) {
     activeLayout = mode;
     if (!Graph || !graphData) return;
 
-    // Clear any pinned positions
-    if (mode !== 'temporal-helix') {
-        graphData.nodes.forEach(node => {
-            node.fx = undefined;
-            node.fy = undefined;
-            node.fz = undefined;
+    // ALWAYS clear ALL pinned positions first (fixes stuck pins from temporal-helix)
+    graphData.nodes.forEach(node => {
+        node.fx = undefined;
+        node.fy = undefined;
+        node.fz = undefined;
+    });
+
+    // Helper: build clean link objects (3d-force-graph mutates source/target to objects)
+    var buildCleanLinks = function() {
+        return graphData.edges.map(function(e) {
+            return {
+                source: typeof e.source === 'object' ? e.source.id : e.source,
+                target: typeof e.target === 'object' ? e.target.id : e.target,
+                weight: e.weight,
+            };
         });
-    }
+    };
 
     switch (mode) {
         case '3d-force':
-            Graph.cooldownTicks(Infinity); // Restore simulation (temporal-helix sets to 0)
             Graph.numDimensions(3);
+            Graph.cooldownTicks(Infinity);
             Graph.d3Force('charge').strength(-80);
-            Graph.d3Force('link').distance(link => (1 - link.weight) * 100);
-            // Re-set graphData to restart the simulation
-            Graph.graphData(Graph.graphData());
+            Graph.d3Force('link').distance(function(link) { return (1 - (link.weight || 0.5)) * 100; });
+            // Perturb positions slightly so simulation has energy after switching from pinned modes
+            graphData.nodes.forEach(function(n) {
+                n.x = (n.x || 0) + (Math.random() - 0.5) * 5;
+                n.y = (n.y || 0) + (Math.random() - 0.5) * 5;
+                n.z = (n.z || 0) + (Math.random() - 0.5) * 5;
+            });
+            Graph.graphData({ nodes: graphData.nodes, links: buildCleanLinks() });
             break;
 
         case '2d-flat':
-            Graph.cooldownTicks(Infinity);
             Graph.numDimensions(2);
-            Graph.d3Force('charge').strength(-60);
-            Graph.graphData(Graph.graphData());
+            Graph.cooldownTicks(Infinity);
+            // Much stronger repulsion in 2D to prevent piling with many nodes
+            Graph.d3Force('charge').strength(-150);
+            Graph.d3Force('link').distance(function(link) { return (1 - (link.weight || 0.5)) * 150; });
+            // Zero out z positions
+            graphData.nodes.forEach(function(n) { n.z = 0; });
+            Graph.graphData({ nodes: graphData.nodes, links: buildCleanLinks() });
             break;
 
         case 'by-cluster':
-            Graph.cooldownTicks(Infinity);
             Graph.numDimensions(3);
-            Graph.d3Force('charge').strength(-30);
-            // Apply cluster force via initial positions
-            const clusterPositions = {};
-            const k = graphData.clusters.length;
-            graphData.clusters.forEach((c, i) => {
-                const phi = (i / k) * Math.PI * 2;
-                const theta = Math.PI / 2 + (i % 3 - 1) * 0.5;
+            Graph.cooldownTicks(Infinity);
+
+            // Scale cluster separation based on node count
+            var nodeCount = graphData.nodes.length;
+            var clusterRadius = Math.max(120, Math.sqrt(nodeCount) * 5);
+            var jitter = clusterRadius * 0.4;
+
+            var k = graphData.clusters.length;
+            var clusterPositions = {};
+            graphData.clusters.forEach(function(c, i) {
+                var phi = (i / k) * Math.PI * 2;
+                var theta = Math.PI / 2 + (i % 3 - 1) * 0.4;
                 clusterPositions[c.id] = {
-                    x: Math.cos(phi) * Math.sin(theta) * 80,
-                    y: Math.cos(theta) * 80,
-                    z: Math.sin(phi) * Math.sin(theta) * 80
+                    x: Math.cos(phi) * Math.sin(theta) * clusterRadius,
+                    y: Math.cos(theta) * clusterRadius,
+                    z: Math.sin(phi) * Math.sin(theta) * clusterRadius
                 };
             });
-            graphData.nodes.forEach(node => {
-                const cp = clusterPositions[node.cluster];
-                if (cp) {
-                    node.x = cp.x + (Math.random() - 0.5) * 30;
-                    node.y = cp.y + (Math.random() - 0.5) * 30;
-                    node.z = cp.z + (Math.random() - 0.5) * 30;
-                }
+
+            graphData.nodes.forEach(function(node) {
+                var cp = (node.cluster >= 0 && node.cluster < k)
+                    ? clusterPositions[node.cluster]
+                    : { x: 0, y: 0, z: 0 };
+                node.x = cp.x + (Math.random() - 0.5) * jitter;
+                node.y = cp.y + (Math.random() - 0.5) * jitter;
+                node.z = cp.z + (Math.random() - 0.5) * jitter;
             });
-            Graph.graphData(Graph.graphData());
+
+            // Moderate repulsion so nodes spread within clusters
+            Graph.d3Force('charge').strength(-50);
+            Graph.d3Force('link').distance(function(link) {
+                return 40;
+            });
+            Graph.graphData({ nodes: graphData.nodes, links: buildCleanLinks() });
             break;
 
         case 'temporal-helix':
+            Graph.numDimensions(3);
             Graph.cooldownTicks(0);
-            graphData.nodes.forEach(node => {
-                node.fx = node.tx;
-                node.fy = node.ty;
-                node.fz = node.tz;
+
+            // Scale temporal positions to spread nodes out more
+            var txScale = 2.0;
+            var tyScale = 1.5;
+            graphData.nodes.forEach(function(node) {
+                node.fx = (node.tx || 0) * txScale;
+                node.fy = (node.ty || 0) * tyScale;
+                node.fz = (node.tz || 0) * tyScale;
+                node.x = node.fx;
+                node.y = node.fy;
+                node.z = node.fz;
             });
-            Graph.refresh();
+
+            Graph.graphData({ nodes: graphData.nodes, links: buildCleanLinks() });
+
+            // Frame the helix: camera looking along the timeline axis
+            setTimeout(function() {
+                Graph.cameraPosition(
+                    { x: 0, y: 200, z: 300 },
+                    { x: 0, y: 0, z: 0 },
+                    1500
+                );
+            }, 100);
             break;
     }
+
+    // Auto-reframe camera after layout switch (helix has its own camera)
+    if (mode !== 'temporal-helix') {
+        setTimeout(function() { centerView(); }, 500);
+    }
+}
+
+function centerView() {
+    if (!Graph || !graphData || !graphData.nodes.length) return;
+    // Compute bounding box center and fly camera to encompass all nodes
+    var xs = graphData.nodes.map(function(n) { return n.x || 0; });
+    var ys = graphData.nodes.map(function(n) { return n.y || 0; });
+    var zs = graphData.nodes.map(function(n) { return n.z || 0; });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    var cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    var cz = (Math.min.apply(null, zs) + Math.max.apply(null, zs)) / 2;
+    var spread = Math.max(
+        Math.max.apply(null, xs) - Math.min.apply(null, xs),
+        Math.max.apply(null, ys) - Math.min.apply(null, ys),
+        Math.max.apply(null, zs) - Math.min.apply(null, zs)
+    );
+    var dist = Math.max(spread * 1.2, 150);
+    Graph.cameraPosition(
+        { x: cx, y: cy + dist * 0.3, z: cz + dist },
+        { x: cx, y: cy, z: cz },
+        1500
+    );
 }
 
 function updateEdgePercentile(percentile) {
