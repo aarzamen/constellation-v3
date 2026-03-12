@@ -265,6 +265,7 @@ def build_graph_data(conversations: list, embeddings: np.ndarray,
             'cluster': cluster_id,
             'clusterLabel': clusters[cluster_id]['label'],
             'color': clusters[cluster_id]['color'],
+            'provider': conv.get('provider', 'claude'),
             'x': float(positions[i, 0]),
             'y': float(positions[i, 1]),
             'z': float(positions[i, 2]),
@@ -285,6 +286,11 @@ def build_graph_data(conversations: list, embeddings: np.ndarray,
     dates = [n['date'] for n in nodes if n['date']]
     date_range = [min(dates), max(dates)] if dates else ['', '']
 
+    provider_counts = {}
+    for conv in conversations:
+        p = conv.get('provider', 'claude')
+        provider_counts[p] = provider_counts.get(p, 0) + 1
+
     stats = {
         'totalConversations': len(conversations),
         'totalMessages': total_messages,
@@ -294,6 +300,7 @@ def build_graph_data(conversations: list, embeddings: np.ndarray,
         'clusterCount': k,
         'edgeThresholdPercentile': 95,
         'edgeCount': len(edges),
+        'providers': provider_counts,
     }
 
     return {
