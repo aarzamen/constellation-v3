@@ -312,40 +312,31 @@ def main():
             if path and os.path.exists(path):
                 extra_sources[provider] = path
 
-    # Parse additional sources
+    # Parse additional sources using provider registry
+    from core.provider_registry import get_parser, list_providers
     for provider, path in extra_sources.items():
         if not os.path.exists(path):
             print(f"Warning: {provider} source not found: {path}")
             continue
 
-        if provider == 'chatgpt':
-            from core.chatgpt_parser import parse_chatgpt_export
-            extra_convs = parse_chatgpt_export(path)
-        elif provider == 'gemini':
-            try:
-                from core.gemini_parser import parse_gemini_export
-                extra_convs = parse_gemini_export(path)
-            except ImportError:
-                print(f"Warning: Gemini parser not available, skipping")
-                continue
-        elif provider == 'grok':
-            try:
-                from core.grok_parser import parse_grok_export
-                extra_convs = parse_grok_export(path)
-            except ImportError:
-                print(f"Warning: Grok parser not available, skipping")
-                continue
-        else:
-            print(f"Warning: Unknown provider '{provider}', skipping")
+        try:
+            parser_fn = get_parser(provider)
+        except ValueError:
+            print(f"Warning: Unknown provider '{provider}'. "
+                  f"Available: {', '.join(list_providers())}")
             continue
 
+        extra_convs = parser_fn(path)
         print(f"Adding {len(extra_convs)} {provider} conversations to index")
         conversations.extend(extra_convs)
 
         # Save source path to config
         if 'sources' not in config:
             config['sources'] = {}
-        config['sources'][provider] = {'path': os.path.abspath(path)}
+        source_entry = {'path': os.path.abspath(path)}
+        if os.path.isdir(path):
+            source_entry['type'] = 'directory'
+        config['sources'][provider] = source_entry
 
     run_pipeline_embed(conversations, source_path, config, force_reembed=args.reembed)
 
