@@ -34,6 +34,30 @@ STOPWORDS = {
 }
 
 
+def extract_message_timestamp(msg: dict) -> str:
+    """Extract the best available timestamp from an Anthropic message object.
+
+    Priority:
+    1. msg['created_at'] — message-level timestamp (microsecond ISO 8601)
+    2. msg['content'][0]['start_timestamp'] — content block timestamp
+    3. msg['timestamp'] — fallback field name
+    4. '' — empty string if nothing found
+    """
+    ts = msg.get('created_at', '')
+    if ts:
+        return ts
+
+    content = msg.get('content', [])
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                ts = item.get('start_timestamp', '')
+                if ts:
+                    return ts
+
+    return msg.get('timestamp', '')
+
+
 def extract_text_from_content(content) -> str:
     """Extract plain text from Claude's content field (handles both string and list formats)."""
     if isinstance(content, str):
@@ -125,7 +149,7 @@ def parse_claude_export(filepath: str) -> list:
             if not text or not text.strip():
                 continue
 
-            timestamp = msg.get('created_at', msg.get('timestamp', ''))
+            timestamp = extract_message_timestamp(msg)
             messages.append({
                 'role': role,
                 'text': text.strip(),

@@ -13,7 +13,7 @@ from core.math_utils import (
     safe_normalize, cosine_similarity_matrix, cosine_similarity_query,
     kmeans, silhouette_score, auto_cluster, pca_3d
 )
-from core.parser import parse_claude_export, extract_top_terms, find_claude_export
+from core.parser import parse_claude_export, extract_top_terms, find_claude_export, extract_message_timestamp
 
 
 class TestMathUtils(unittest.TestCase):
@@ -178,6 +178,69 @@ class TestParser(unittest.TestCase):
 
         self.assertEqual(len(conversations), 1)
         self.assertEqual(conversations[0]['user_messages'], ['Hello'])
+
+
+    def test_timestamp_from_created_at(self):
+        """extract_message_timestamp uses msg['created_at'] first."""
+        msg = {'created_at': '2024-03-26T22:11:56.126991Z', 'timestamp': 'fallback'}
+        self.assertEqual(extract_message_timestamp(msg), '2024-03-26T22:11:56.126991Z')
+
+    def test_timestamp_from_content_block(self):
+        """Falls back to content block start_timestamp."""
+        msg = {
+            'content': [{'type': 'text', 'text': 'Hi', 'start_timestamp': '2024-03-26T22:11:56.126991Z'}]
+        }
+        self.assertEqual(extract_message_timestamp(msg), '2024-03-26T22:11:56.126991Z')
+
+    def test_timestamp_fallback_to_timestamp(self):
+        """Falls back to msg['timestamp']."""
+        msg = {'timestamp': '2024-01-01T00:00:00Z'}
+        self.assertEqual(extract_message_timestamp(msg), '2024-01-01T00:00:00Z')
+
+    def test_timestamp_empty_when_nothing(self):
+        """Returns empty string when no timestamp found."""
+        msg = {'text': 'Hello'}
+        self.assertEqual(extract_message_timestamp(msg), '')
+
+    def test_claude_parser_preserves_timestamps(self):
+        """Messages from Claude export have non-empty ISO 8601 timestamps."""
+        import tempfile
+        test_data = [{
+            'uuid': 'test-ts-1',
+            'name': 'Timestamp Test',
+            'created_at': '2024-03-26T22:11:33.356578Z',
+            'chat_messages': [{
+                'sender': 'human',
+                'created_at': '2024-03-26T22:11:56.126991Z',
+                'text': 'Hello',
+                'content': [{
+                    'type': 'text',
+                    'text': 'Hello',
+                    'start_timestamp': '2024-03-26T22:11:56.126991Z',
+                    'stop_timestamp': '2024-03-26T22:11:57.000000Z',
+                }]
+            }, {
+                'sender': 'assistant',
+                'text': 'Hi there',
+                'content': [{
+                    'type': 'text',
+                    'text': 'Hi there',
+                    'start_timestamp': '2024-03-26T22:11:58.000000Z',
+                }]
+            }]
+        }]
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(test_data, f)
+            f.flush()
+            conversations = parse_claude_export(f.name)
+        os.unlink(f.name)
+
+        self.assertEqual(len(conversations), 1)
+        msgs = conversations[0]['messages']
+        # First message has created_at at message level
+        self.assertEqual(msgs[0]['timestamp'], '2024-03-26T22:11:56.126991Z')
+        # Second message falls back to content block start_timestamp
+        self.assertEqual(msgs[1]['timestamp'], '2024-03-26T22:11:58.000000Z')
 
 
 class TestSearchEngine(unittest.TestCase):
