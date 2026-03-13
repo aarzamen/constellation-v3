@@ -270,6 +270,96 @@ class TestBrowsingTools(unittest.TestCase):
         result = engine.delete_note('conv-0', 'badid123')
         self.assertIn('error', result)
 
+    # --- list_recent_conversations tests ---
+
+    def test_list_recent_returns_list(self):
+        """list_recent_conversations returns a list of dicts."""
+        engine = self._make_engine()
+        result = engine.list_recent_conversations(n=5)
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 5)
+        item = result[0]
+        self.assertIn('id', item)
+        self.assertIn('title', item)
+        self.assertIn('date', item)
+        self.assertIn('provider', item)
+        self.assertIn('message_count', item)
+        self.assertIn('cluster_label', item)
+
+    def test_list_recent_sorted_newest_first(self):
+        """list_recent_conversations returns newest first."""
+        engine = self._make_engine()
+        result = engine.list_recent_conversations(n=10)
+        dates = [r['date'] for r in result]
+        self.assertEqual(dates, sorted(dates, reverse=True))
+
+    def test_list_recent_before_filter(self):
+        """before parameter excludes conversations after that date."""
+        engine = self._make_engine()
+        result = engine.list_recent_conversations(n=50, before='2025-03-15')
+        for item in result:
+            self.assertLess(item['date'], '2025-03-15')
+
+    def test_list_recent_after_filter(self):
+        """after parameter excludes conversations before that date."""
+        engine = self._make_engine()
+        result = engine.list_recent_conversations(n=50, after='2025-03-15')
+        for item in result:
+            self.assertGreater(item['date'], '2025-03-15')
+
+    def test_list_recent_n_capped_at_50(self):
+        """n is capped at 50."""
+        engine = self._make_engine()
+        result = engine.list_recent_conversations(n=100)
+        # We only have 10 conversations, so we get 10 back, but n shouldn't error
+        self.assertLessEqual(len(result), 50)
+
+
+class TestAnnotationProtocol(unittest.TestCase):
+    """Verify MCP tool descriptions contain annotation protocol markers."""
+
+    def test_annotation_protocol_md_exists(self):
+        """ANNOTATION_PROTOCOL.md exists at project root."""
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(project_root, 'ANNOTATION_PROTOCOL.md')
+        self.assertTrue(os.path.exists(path), 'ANNOTATION_PROTOCOL.md not found at project root')
+
+    def test_deploy_md_exists(self):
+        """DEPLOY.md exists at project root."""
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(project_root, 'DEPLOY.md')
+        self.assertTrue(os.path.exists(path), 'DEPLOY.md not found at project root')
+
+    def test_search_tool_has_annotation_protocol(self):
+        """search_conversations docstring contains all four annotation patterns."""
+        from server.mcp_server import search_conversations
+        doc = search_conversations.__doc__
+        self.assertIn('BREADCRUMB', doc)
+        self.assertIn('GRAVITY', doc)
+        self.assertIn('TODO', doc)
+        self.assertIn('SAFETY', doc)
+
+    def test_add_note_tool_has_annotation_patterns(self):
+        """add_conversation_note docstring contains annotation patterns."""
+        from server.mcp_server import add_conversation_note
+        doc = add_conversation_note.__doc__
+        self.assertIn('BREADCRUMB', doc)
+        self.assertIn('GRAVITY', doc)
+        self.assertIn('TODO', doc)
+
+    def test_get_conversation_mentions_notes(self):
+        """get_conversation docstring mentions notes from prior sessions."""
+        from server.mcp_server import get_conversation
+        doc = get_conversation.__doc__
+        self.assertIn('BREADCRUMB', doc)
+        self.assertIn('notes', doc.lower())
+
+    def test_list_recent_conversations_tool_exists(self):
+        """list_recent_conversations is importable from mcp_server."""
+        from server.mcp_server import list_recent_conversations
+        self.assertIsNotNone(list_recent_conversations)
+        self.assertIn('recent', list_recent_conversations.__doc__.lower())
+
 
 if __name__ == '__main__':
     unittest.main()
