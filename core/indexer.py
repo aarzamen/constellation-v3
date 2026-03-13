@@ -69,13 +69,17 @@ COLORBLIND_PALETTE = [
 ]
 
 
-def embed_conversations(conversations: list, embedder) -> np.ndarray:
+def embed_conversations(conversations: list, embedder,
+                        progress_callback=None) -> np.ndarray:
     """Embed all conversations using mean pooling over user messages.
 
     For each conversation:
     1. Embed every user message individually
     2. Average the resulting vectors
     3. L2-normalize the mean vector
+
+    Args:
+        progress_callback: Optional callable(done, total) called after each batch.
 
     Returns (N, dim) numpy array where N = number of conversations.
     """
@@ -90,7 +94,8 @@ def embed_conversations(conversations: list, embedder) -> np.ndarray:
 
     print(f"Embedding {len(all_user_messages)} messages from "
           f"{len(conversations)} conversations...")
-    all_embeddings = embedder.embed(all_user_messages)
+    all_embeddings = embedder.embed(all_user_messages,
+                                    progress_callback=progress_callback)
 
     # Mean pool per conversation
     conv_embeddings = []

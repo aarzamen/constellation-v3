@@ -397,6 +397,55 @@ class ConstellationHelper(ctk.CTk):
         )
         instructions.pack(padx=10, pady=(4, 10), anchor='w')
 
+        # --- Embedding Progress Section (hidden by default) ---
+        self.progress_frame = ctk.CTkFrame(
+            self.main_frame, fg_color=COLORS['panel'],
+            corner_radius=8, border_width=1, border_color=COLORS['border'],
+        )
+        # Not packed initially — shown only during re-embed
+
+        self.progress_stage_label = ctk.CTkLabel(
+            self.progress_frame, text='Preparing...',
+            font=('Helvetica', 13, 'bold'), text_color=COLORS['text'],
+            anchor='w',
+        )
+        self.progress_stage_label.pack(padx=12, pady=(10, 2), anchor='w')
+
+        self.progress_bar = ctk.CTkProgressBar(
+            self.progress_frame, fg_color=COLORS['surface'],
+            progress_color=COLORS['violet'], height=14, corner_radius=4,
+        )
+        self.progress_bar.pack(padx=12, pady=2, fill='x')
+        self.progress_bar.set(0)
+
+        progress_detail_row = ctk.CTkFrame(self.progress_frame, fg_color='transparent')
+        progress_detail_row.pack(padx=12, pady=(0, 4), fill='x')
+
+        self.progress_detail_label = ctk.CTkLabel(
+            progress_detail_row, text='',
+            font=('Helvetica', 11), text_color=COLORS['text_secondary'],
+            anchor='w',
+        )
+        self.progress_detail_label.pack(side='left')
+
+        self.progress_speed_label = ctk.CTkLabel(
+            progress_detail_row, text='',
+            font=('Helvetica', 11), text_color=COLORS['text_dim'],
+            anchor='e',
+        )
+        self.progress_speed_label.pack(side='right')
+
+        self.progress_eta_label = ctk.CTkLabel(
+            self.progress_frame, text='',
+            font=('Helvetica', 11), text_color=COLORS['text_dim'],
+            anchor='w',
+        )
+        self.progress_eta_label.pack(padx=12, pady=(0, 8), anchor='w')
+
+        # Tracking for speed/ETA calculation
+        self._embed_start_time = None
+        self._embed_last_done = 0
+
         # --- Action Buttons ---
         button_frame = ctk.CTkFrame(self.main_frame, fg_color='transparent')
         button_frame.pack(fill='x', padx=16, pady=(10, 5))
@@ -577,29 +626,152 @@ class ConstellationHelper(ctk.CTk):
         self._set_status('Servers stopped.')
 
     def _reembed(self):
-        """Run re-embedding in a background subprocess."""
-        self._set_status('Re-embedding... (this may take several minutes)')
+        """Run re-embedding in a background subprocess with real-time progress."""
+        self._set_status('Re-embedding...')
         self.reembed_btn.configure(state='disabled', text='Embedding...')
+
+        # Show progress panel
+        self._build_section_label_for_progress()
+        self.progress_frame.pack(fill='x', padx=16, pady=(0, 5),
+                                  before=self.progress_frame.master.winfo_children()[-1]
+                                  if False else None)
+        # Pack after the data sources section
+        self.progress_frame.pack(fill='x', padx=16, pady=(0, 5))
+        self.progress_bar.set(0)
+        self.progress_stage_label.configure(text='Starting pipeline...')
+        self.progress_detail_label.configure(text='')
+        self.progress_speed_label.configure(text='')
+        self.progress_eta_label.configure(text='')
+        self._embed_start_time = None
+        self._embed_last_done = 0
 
         def run():
             try:
-                result = subprocess.run(
+                proc = subprocess.Popen(
                     [VENV_PYTHON, LAUNCH_SCRIPT, '--reembed', '--headless'],
                     cwd=PROJECT_ROOT,
-                    capture_output=True, text=True, timeout=1800,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
                 )
-                if result.returncode == 0:
-                    self.after(0, lambda: self._set_status('Re-embedding complete!'))
+                for line in proc.stdout:
+                    line = line.strip()
+                    if line.startswith('PROGRESS:'):
+                        self.after(0, lambda l=line: self._handle_progress_line(l))
+                proc.wait()
+                if proc.returncode == 0:
+                    self.after(0, lambda: self._finish_reembed(True, ''))
                 else:
-                    self.after(0, lambda: self._set_status(f'Re-embed failed (exit {result.returncode})'))
-            except subprocess.TimeoutExpired:
-                self.after(0, lambda: self._set_status('Re-embed timed out'))
+                    stderr_out = proc.stderr.read() if proc.stderr else ''
+                    self.after(0, lambda: self._finish_reembed(
+                        False, f'exit {proc.returncode}'))
             except Exception as e:
-                self.after(0, lambda: self._set_status(f'Re-embed error: {e}'))
-            finally:
-                self.after(0, lambda: self.reembed_btn.configure(state='normal', text='Re-embed'))
+                self.after(0, lambda: self._finish_reembed(False, str(e)))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _build_section_label_for_progress(self):
+        """Ensure EMBEDDING PROGRESS section label exists."""
+        if not hasattr(self, '_progress_section_label'):
+            self._progress_section_label = ctk.CTkLabel(
+                self.main_frame, text='EMBEDDING PROGRESS',
+                font=('Helvetica', 11, 'bold'), text_color=COLORS['text_dim'],
+                anchor='w',
+            )
+        self._progress_section_label.pack(padx=20, pady=(10, 3), anchor='w')
+
+    def _handle_progress_line(self, line):
+        """Parse a PROGRESS protocol line and update the progress panel.
+
+        Format: PROGRESS:<stage>:<done>:<total>:<detail>
+        """
+        parts = line.split(':', 4)
+        if len(parts) < 5:
+            return
+        _, stage, done_str, total_str, detail = parts
+
+        try:
+            done = int(done_str)
+            total = int(total_str)
+        except ValueError:
+            return
+
+        stage_labels = {
+            'init': 'Initializing',
+            'embedding': 'Embedding messages',
+            'clustering': 'Clustering',
+            'edges': 'Building edges',
+            'saving': 'Saving data',
+            'complete': 'Complete',
+        }
+        stage_text = stage_labels.get(stage, stage.title())
+
+        if stage == 'complete':
+            self.progress_bar.set(1.0)
+            self.progress_stage_label.configure(
+                text='Pipeline complete', text_color=COLORS['green'])
+            self.progress_detail_label.configure(text=detail)
+            self.progress_speed_label.configure(text='')
+            self.progress_eta_label.configure(text='')
+            return
+
+        # Update progress bar
+        fraction = done / total if total > 0 else 0
+        self.progress_bar.set(fraction)
+        self.progress_stage_label.configure(
+            text=stage_text, text_color=COLORS['text'])
+
+        if stage == 'embedding' and total > 0:
+            self.progress_detail_label.configure(
+                text=f'{done:,} / {total:,} messages')
+
+            # Speed and ETA
+            if self._embed_start_time is None and done > 0:
+                self._embed_start_time = time.time()
+                self._embed_last_done = done
+            elif self._embed_start_time and done > self._embed_last_done:
+                elapsed = time.time() - self._embed_start_time
+                processed = done - self._embed_last_done
+                if elapsed > 0:
+                    speed = (done - 0) / elapsed  # total since start
+                    remaining = total - done
+                    eta_secs = remaining / speed if speed > 0 else 0
+                    self.progress_speed_label.configure(
+                        text=f'{speed:.0f} msg/s')
+                    if eta_secs < 60:
+                        self.progress_eta_label.configure(
+                            text=f'ETA: {eta_secs:.0f}s')
+                    else:
+                        mins = int(eta_secs // 60)
+                        secs = int(eta_secs % 60)
+                        self.progress_eta_label.configure(
+                            text=f'ETA: {mins}m {secs:02d}s')
+        else:
+            self.progress_detail_label.configure(text=detail)
+            self.progress_speed_label.configure(text='')
+            self.progress_eta_label.configure(text='')
+
+    def _finish_reembed(self, success, error_msg):
+        """Clean up after re-embed completes."""
+        self.reembed_btn.configure(state='normal', text='Re-embed')
+        if success:
+            self._set_status('Re-embedding complete!')
+            self.progress_stage_label.configure(
+                text='Pipeline complete', text_color=COLORS['green'])
+            self.progress_bar.set(1.0)
+        else:
+            self._set_status(f'Re-embed failed: {error_msg}')
+            self.progress_stage_label.configure(
+                text=f'Failed: {error_msg}', text_color=COLORS['red'])
+        # Hide progress panel after 10 seconds on success
+        if success:
+            self.after(10000, self._hide_progress_panel)
+
+    def _hide_progress_panel(self):
+        """Hide the progress panel and its section label."""
+        self.progress_frame.pack_forget()
+        if hasattr(self, '_progress_section_label'):
+            self._progress_section_label.pack_forget()
 
     def _toggle_tunnel(self):
         """Start or stop Cloudflare Tunnel."""

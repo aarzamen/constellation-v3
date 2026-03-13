@@ -23,13 +23,36 @@ class Embedder:
         self.dim = self.model.get_sentence_embedding_dimension()
         print(f"Model loaded: {model_name} ({self.dim}d)", file=sys.stderr)
 
-    def embed(self, texts: list, show_progress: bool = True) -> np.ndarray:
-        """Embed a list of texts. Returns (N, dim) numpy array, L2-normalized."""
-        return self.model.encode(
-            texts,
-            show_progress_bar=show_progress,
-            normalize_embeddings=True,
-        )
+    def embed(self, texts: list, show_progress: bool = True,
+              progress_callback=None, batch_size: int = 64) -> np.ndarray:
+        """Embed a list of texts. Returns (N, dim) numpy array, L2-normalized.
+
+        Args:
+            progress_callback: Optional callable(done, total) called after each batch.
+        """
+        if progress_callback is None:
+            return self.model.encode(
+                texts,
+                show_progress_bar=show_progress,
+                normalize_embeddings=True,
+                batch_size=batch_size,
+            )
+
+        # Batch encode with progress callback
+        all_embeddings = []
+        total = len(texts)
+        for start in range(0, total, batch_size):
+            batch = texts[start:start + batch_size]
+            batch_emb = self.model.encode(
+                batch,
+                show_progress_bar=False,
+                normalize_embeddings=True,
+                batch_size=batch_size,
+            )
+            all_embeddings.append(batch_emb)
+            progress_callback(min(start + batch_size, total), total)
+
+        return np.vstack(all_embeddings)
 
     def embed_query(self, query: str) -> np.ndarray:
         """Embed a single query string. Returns (1, dim) numpy array."""

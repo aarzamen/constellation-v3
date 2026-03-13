@@ -127,6 +127,15 @@ def run_pipeline_parse(source_path: str) -> list:
     return conversations
 
 
+def _progress_line(stage, done, total, detail=''):
+    """Print a PROGRESS protocol line for subprocess communication.
+
+    Format: PROGRESS:<stage>:<done>:<total>:<detail>
+    The helper reads these lines from stdout to update the progress panel.
+    """
+    print(f"PROGRESS:{stage}:{done}:{total}:{detail}", flush=True)
+
+
 def run_pipeline_embed(conversations: list, source_path: str, config: dict,
                        force_reembed: bool = False):
     """Run the embedding pipeline on a merged list of conversations."""
@@ -138,6 +147,8 @@ def run_pipeline_embed(conversations: list, source_path: str, config: dict,
     import json as _json
 
     ensure_data_dir()
+    _progress_line('init', 0, len(conversations),
+                   f'{len(conversations)} conversations')
 
     conv_path = os.path.join(DATA_DIR, 'conversations.json')
     emb_path = os.path.join(DATA_DIR, 'embeddings.npy')
@@ -170,6 +181,7 @@ def run_pipeline_embed(conversations: list, source_path: str, config: dict,
 
     if not to_embed and use_cache:
         print("No new conversations found. Core graph remains unchanged.")
+        _progress_line('complete', len(conversations), len(conversations), 'cached')
         graph_data_path = os.path.join(DATA_DIR, 'graph_data.json')
         if os.path.exists(graph_data_path):
             with open(graph_data_path, 'r') as f:
@@ -180,9 +192,16 @@ def run_pipeline_embed(conversations: list, source_path: str, config: dict,
     new_chunk_map = []
     if to_embed:
         msg_count = sum(len(c['messages']) for c in to_embed)
+        total_msgs = sum(len(c.get('user_messages', c.get('messages', []))) for c in to_embed)
         print(f"Indexing {len(to_embed)} NEW conversations \u00b7 {msg_count} messages\n")
+        _progress_line('embedding', 0, total_msgs, 'loading model')
         embedder = Embedder(config.get('embedding', {}).get('model', 'all-MiniLM-L6-v2'))
-        new_emb, new_chunk_emb, new_chunk_map = embed_conversations(to_embed, embedder)
+
+        def on_embed_progress(done, total):
+            _progress_line('embedding', done, total)
+
+        new_emb, new_chunk_emb, new_chunk_map = embed_conversations(
+            to_embed, embedder, progress_callback=on_embed_progress)
 
     final_emb = []
     final_chunk_emb = []
@@ -229,15 +248,24 @@ def run_pipeline_embed(conversations: list, source_path: str, config: dict,
     embeddings = np.array(final_emb)
     chunk_embeddings = np.array(final_chunk_emb) if final_chunk_emb else None
 
+    _progress_line('clustering', 0, 1, 'building clusters')
     print("Re-clustering and caching final graph...")
     cluster_info = build_clusters(embeddings)
+    _progress_line('clustering', 1, 1, f"{cluster_info['k']} clusters")
+
+    _progress_line('edges', 0, 1, 'computing similarity')
     edges = build_edges(embeddings, conversations)
+    _progress_line('edges', 1, 1, f'{len(edges)} edges')
+
+    _progress_line('saving', 0, 1, 'building graph')
     graph_data = build_graph_data(conversations, embeddings, cluster_info, edges)
 
     save_pipeline_output(conversations, embeddings, chunk_embeddings, final_chunk_map, graph_data, DATA_DIR)
     config['source']['path'] = os.path.abspath(source_path)
     save_config(config)
 
+    _progress_line('complete', len(conversations), len(conversations),
+                   f"{graph_data['stats']['clusterCount']} clusters, {graph_data['stats']['edgeCount']} edges")
     print(f"\n\u2726 Pipeline complete")
     print(f"  {graph_data['stats']['clusterCount']} clusters")
     print(f"  {graph_data['stats']['edgeCount']} edges")
