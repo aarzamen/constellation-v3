@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Constellation V3 — Entry point.
+"""Constellation — Entry point.
 
 Usage:
     python3 launch.py                              # Full: embed (if needed) + serve + open browser
@@ -22,7 +22,7 @@ from core.config import CONFIG_PATH, DATA_DIR, ensure_config, ensure_data_dir, s
 
 
 BANNER = """
-  \u2726 Constellation V3
+  \u2726 Constellation
 """
 
 
@@ -309,7 +309,7 @@ def start_server(config: dict, headless: bool = False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Constellation V3')
+    parser = argparse.ArgumentParser(description='Constellation')
     parser.add_argument('--headless', action='store_true',
                         help='REST API only, no browser')
     parser.add_argument('--reembed', action='store_true',

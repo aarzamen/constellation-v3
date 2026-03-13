@@ -1,5 +1,5 @@
 /**
- * 3d-force-graph wrapper for Constellation V3.
+ * 3d-force-graph wrapper for Constellation.
  * Custom node rendering, particle edges, layout modes.
  */
 

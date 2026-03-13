@@ -1,5 +1,5 @@
 /**
- * Inspector panel for Constellation V3.
+ * Inspector panel for Constellation.
  * Shows conversation detail and chat viewer on node click.
  */
 

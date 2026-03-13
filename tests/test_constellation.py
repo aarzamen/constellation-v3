@@ -1,4 +1,4 @@
-"""Unit tests for Constellation V3 core functionality."""
+"""Unit tests for Constellation core functionality."""
 
 import json
 import os

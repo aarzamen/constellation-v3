@@ -1,6 +1,6 @@
 """Build vector index, clusters, and graph data from embeddings.
 
-Constellation V3 — core/indexer.py
+Constellation — core/indexer.py
 """
 
 import json

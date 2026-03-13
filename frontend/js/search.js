@@ -1,5 +1,5 @@
 /**
- * Search interface for Constellation V3.
+ * Search interface for Constellation.
  * Client-side keyword filtering + server-side semantic search.
  */
 

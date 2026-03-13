@@ -1,4 +1,4 @@
-"""Pure numpy math utilities for Constellation V3.
+"""Pure numpy math utilities for Constellation.
 
 KMeans, PCA, cosine similarity — no sklearn dependency.
 """

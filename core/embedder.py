@@ -1,4 +1,4 @@
-"""Embedding engine for Constellation V3.
+"""Embedding engine for Constellation.
 
 Local model: all-MiniLM-L6-v2 via sentence-transformers.
 Clean interface for future extensibility.

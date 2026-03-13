@@ -1,4 +1,4 @@
-"""MCP memory server for Constellation V3.
+"""MCP memory server for Constellation.
 
 Standalone process — Claude Desktop launches this as a subprocess via stdio.
 Loads its own copy of embeddings and conversation index from disk.

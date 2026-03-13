@@ -1,5 +1,5 @@
 /**
- * Starfield background renderer for Constellation V3.
+ * Starfield background renderer for Constellation.
  * Renders a static canvas with ~300 tiny dots of varying brightness.
  * Some dots pulse slowly via CSS animation.
  */

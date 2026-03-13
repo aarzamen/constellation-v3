@@ -1,5 +1,5 @@
 /**
- * Brushable timeline for Constellation V3.
+ * Brushable timeline for Constellation.
  * Renders monthly conversation counts with cluster-colored bars.
  */
 

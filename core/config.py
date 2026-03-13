@@ -1,4 +1,4 @@
-"""Settings management for Constellation V3."""
+"""Settings management for Constellation."""
 
 import os
 import shutil

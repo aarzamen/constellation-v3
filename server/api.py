@@ -1,4 +1,4 @@
-"""REST search endpoints for Constellation V3.
+"""REST search endpoints for Constellation.
 
 Shared logic between MCP server and HTTP API.
 """

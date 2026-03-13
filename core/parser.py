@@ -1,7 +1,7 @@
-"""Claude export JSON parser for Constellation V3.
+"""Claude export JSON parser for Constellation.
 
 Parses Claude's conversations.json export into a unified format.
-V3 supports Claude exports only.
+Supports Claude, ChatGPT, Gemini, and Grok exports.
 """
 
 import json

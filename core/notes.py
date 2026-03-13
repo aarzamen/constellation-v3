@@ -1,4 +1,4 @@
-"""Sidecar note persistence for Constellation V3.
+"""Sidecar note persistence for Constellation.
 
 Notes are stored in data/notes.json, separate from conversations.json,
 so they survive pipeline rebuilds (--reembed).

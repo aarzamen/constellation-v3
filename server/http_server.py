@@ -1,4 +1,4 @@
-"""HTTP server for Constellation V3.
+"""HTTP server for Constellation.
 
 Serves static frontend files + REST API.
 """

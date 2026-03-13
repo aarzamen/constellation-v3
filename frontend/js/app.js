@@ -1,5 +1,5 @@
 /**
- * Main orchestrator for Constellation V3.
+ * Main orchestrator for Constellation.
  * Loads data, initializes components, wires events.
  */
 

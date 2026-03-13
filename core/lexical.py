@@ -1,4 +1,4 @@
-"""Lightweight BM25 Lexical Search Engine for Constellation V3.
+"""Lightweight BM25 Lexical Search Engine for Constellation.
 
 Native Python implementation to avoid heavy framework dependencies.
 """
