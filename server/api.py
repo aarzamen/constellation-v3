@@ -370,3 +370,50 @@ class SearchEngine:
             'offset': offset,
             'limit': limit,
         }
+
+    def list_recent_conversations(self, n=10, before=None, after=None, provider=None):
+        """List the most recent conversations, sorted by date (newest first).
+
+        Useful for browsing recent activity without a search query.
+        Supports optional date filtering with ISO date strings.
+
+        Args:
+            n: Number of conversations to return (default 10, max 50).
+            before: Only include conversations before this ISO date (e.g. "2025-06-01").
+            after: Only include conversations after this ISO date (e.g. "2025-01-01").
+            provider: Optional provider filter.
+
+        Returns:
+            List of recent conversations with id, title, date, message_count,
+            and cluster_label.
+        """
+        self.load()
+
+        n = min(max(1, int(n)), 50)
+        convs = list(self.conversations)
+
+        if provider:
+            convs = [c for c in convs if c.get('provider', 'claude') == provider]
+
+        if before:
+            convs = [c for c in convs if c.get('created_at', '') < before]
+
+        if after:
+            convs = [c for c in convs if c.get('created_at', '') > after]
+
+        convs.sort(key=lambda c: c.get('created_at', ''), reverse=True)
+        page = convs[:n]
+
+        items = []
+        for c in page:
+            cluster_info = self.conv_cluster.get(c['id'], {})
+            items.append({
+                'id': c['id'],
+                'title': c.get('name', ''),
+                'date': c.get('created_at', ''),
+                'provider': c.get('provider', 'claude'),
+                'message_count': len(c.get('messages', [])),
+                'cluster_label': cluster_info.get('cluster_label', ''),
+            })
+
+        return items

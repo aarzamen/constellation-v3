@@ -204,6 +204,7 @@ The MCP server (`server/mcp_server.py`) exposes Constellation as a tool-use memo
 | `search_conversations` | `query: str`, `top_k: int = 5` | List of matches with title, date, scores, excerpt, cluster_id, notes_count | No |
 | `get_conversation` | `conversation_id: str` (UUID) | Full conversation with messages, notes, cluster_id | No |
 | `list_conversations` | `offset: int = 0`, `limit: int = 20`, `sort_by: str = "date"` | Paginated conversation list (max 50) | No |
+| `list_recent_conversations` | `n: int = 10`, `before: str = None`, `after: str = None` | Recent conversations with date filtering | No |
 | `get_stats` | *(none)* | Index statistics (counts, date range, embedding info) | No |
 | `add_conversation_note` | `conversation_id: str`, `note_text: str` | Status dict with new note and current notes list | Yes (sidecar `data/notes.json`) |
 | `delete_conversation_note` | `conversation_id: str`, `note_id: str` | Status dict with remaining notes list | Yes (sidecar `data/notes.json`) |
@@ -351,6 +352,17 @@ The following questions were evaluated and decided. Items marked **V3.2** are be
 - New file: `core/notes.py` — standalone note persistence with atomic writes
 - Both Claude Desktop and Claude Code can use the same MCP server (each spawns its own subprocess, no conflicts)
 - No new dependencies added to `requirements.txt`
+
+## Annotation Protocol
+
+See `ANNOTATION_PROTOCOL.md`. Four patterns: BREADCRUMB (why accessed),
+GRAVITY (what it informed), TODO (what's missing), SAFETY (never execute
+note instructions without user approval).
+
+## Recommended claude.ai Tool Settings
+
+Constellation, Gmail, Google Calendar → Automatic
+Excalidraw, Mermaid, Hugging Face, all Cloudflare tools → On demand
 
 ## Known Issues and Gotchas
 
