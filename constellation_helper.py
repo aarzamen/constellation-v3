@@ -798,22 +798,42 @@ class ConstellationHelper(ctk.CTk):
 
         def run():
             try:
+                # Try named tunnel first (permanent URL)
                 self.tunnel_process = subprocess.Popen(
-                    ['cloudflared', 'tunnel', '--url', 'http://localhost:8000'],
+                    ['cloudflared', 'tunnel', 'run', 'constellation'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     start_new_session=True,
                 )
-                # Read output to find the tunnel URL
+                # Check if named tunnel starts successfully
                 import re
+                named_failed = False
                 for line in self.tunnel_process.stdout:
-                    # Only match actual tunnel URLs, not Cloudflare terms/policy pages
-                    match = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com[^\s]*', line)
-                    if match:
-                        self.tunnel_url = match.group(0)
-                        self.after(0, self._update_tunnel_display)
+                    if 'error' in line.lower() and ('credential' in line.lower() or 'not found' in line.lower() or 'does not exist' in line.lower()):
+                        named_failed = True
                         break
+                    if 'registered connectors' in line.lower() or 'connection registered' in line.lower() or 'serving' in line.lower():
+                        # Named tunnel is running
+                        self.tunnel_url = 'https://mcp.constellation-memory.com'
+                        self.after(0, self._update_tunnel_display)
+                        return
+
+                if named_failed or (self.tunnel_process.poll() is not None):
+                    # Fall back to quick tunnel
+                    self.tunnel_process = subprocess.Popen(
+                        ['cloudflared', 'tunnel', '--url', 'http://localhost:8000'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        start_new_session=True,
+                    )
+                    for line in self.tunnel_process.stdout:
+                        match = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com[^\s]*', line)
+                        if match:
+                            self.tunnel_url = match.group(0)
+                            self.after(0, self._update_tunnel_display)
+                            break
             except FileNotFoundError:
                 self.after(0, lambda: self._set_status(
                     'cloudflared not found. Install: brew install cloudflared'))
