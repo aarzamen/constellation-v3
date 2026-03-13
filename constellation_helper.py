@@ -976,9 +976,20 @@ class ConstellationHelper(ctk.CTk):
         )
 
         # Stats display
+        # Compute subprocess-based uptime and PID as fallback
+        sub_uptime = ''
+        sub_pid = ''
+        if self._start_time:
+            elapsed = time.time() - self._start_time
+            hours = int(elapsed // 3600)
+            mins = int((elapsed % 3600) // 60)
+            sub_uptime = f'{hours}h {mins:02d}m'
+        if self.rest_process and self.rest_process.poll() is None:
+            sub_pid = str(self.rest_process.pid)
+
         if server_info:
-            uptime = server_info.get('uptime_formatted', '')
-            pid = server_info.get('pid', '')
+            uptime = server_info.get('uptime_formatted', '') or sub_uptime
+            pid = server_info.get('pid', '') or sub_pid
             convs = server_info.get('total_conversations', 0)
             msgs = server_info.get('total_messages', 0)
             providers = server_info.get('providers', {})
@@ -993,18 +1004,29 @@ class ConstellationHelper(ctk.CTk):
             msgs = stats.get('totalMessages', 0)
             providers = stats.get('providers', {})
             prov_str = ', '.join(f'{k.title()} ({v})' for k, v in providers.items())
-            uptime_str = ''
-            if self._start_time:
-                elapsed = time.time() - self._start_time
-                hours = int(elapsed // 3600)
-                mins = int((elapsed % 3600) // 60)
-                uptime_str = f'Uptime: {hours}h {mins:02d}m   '
-            self.stats_label.configure(
-                text=f'{uptime_str}Conversations: {convs:,}   Messages: {msgs:,}\n'
-                     f'Providers: {prov_str}',
-            )
-        elif not rest_ok:
-            self.stats_label.configure(text='Server not running')
+            uptime_str = f'Uptime: {sub_uptime}   ' if sub_uptime else ''
+            pid_str = f'PID: {sub_pid}' if sub_pid else ''
+            header = f'{uptime_str}{pid_str}'.strip()
+            lines = []
+            if header:
+                lines.append(header)
+            lines.append(f'Conversations: {convs:,}   Messages: {msgs:,}')
+            lines.append(f'Providers: {prov_str}')
+            self.stats_label.configure(text='\n'.join(lines))
+        elif rest_ok:
+            # REST is up but no stats yet (unlikely but handle gracefully)
+            self.stats_label.configure(text='Loading stats...')
+        elif self.rest_process and self.rest_process.poll() is None:
+            # Process alive but not responding yet — show subprocess info
+            header = ''
+            if sub_uptime:
+                header += f'Uptime: {sub_uptime}   '
+            if sub_pid:
+                header += f'PID: {sub_pid}'
+            self.stats_label.configure(text=header.strip() if header.strip() else 'Starting...')
+        else:
+            # Nothing running — clear stats area (status bar says "Servers stopped.")
+            self.stats_label.configure(text='')
 
         # Status bar
         if rest_ok:
