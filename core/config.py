@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import sys
 import yaml
 
 DEFAULT_CONFIG = {
@@ -37,7 +38,7 @@ def ensure_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
         if os.path.exists(CONFIG_EXAMPLE_PATH):
             shutil.copy2(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
-            print("Created config.yaml from config.yaml.example")
+            print("Created config.yaml from config.yaml.example", file=sys.stderr)
         else:
             return DEFAULT_CONFIG.copy()
 

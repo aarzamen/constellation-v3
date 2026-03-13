@@ -6,6 +6,7 @@ Constellation V3 — core/indexer.py
 import json
 import os
 import re
+import sys
 from collections import Counter
 from datetime import datetime
 
@@ -93,7 +94,7 @@ def embed_conversations(conversations: list, embedder,
         message_counts.append(len(msgs))
 
     print(f"Embedding {len(all_user_messages)} messages from "
-          f"{len(conversations)} conversations...")
+          f"{len(conversations)} conversations...", file=sys.stderr)
     all_embeddings = embedder.embed(all_user_messages,
                                     progress_callback=progress_callback)
 
@@ -128,7 +129,7 @@ def build_clusters(embeddings: np.ndarray, k_override: int = None) -> dict:
         k = k_override
     else:
         k, labels, centroids = auto_cluster(embeddings, k_min=5, k_max=20)
-        print(f"Auto-detected {k} clusters (silhouette score sweep)")
+        print(f"Auto-detected {k} clusters (silhouette score sweep)", file=sys.stderr)
 
     return {
         'k': k,
@@ -176,7 +177,7 @@ def build_edges(embeddings: np.ndarray, conversations: list,
 
     upper_tri = sim_matrix[np.triu_indices_from(sim_matrix, k=1)]
     threshold = np.percentile(upper_tri, percentile)
-    print(f"Edge threshold: {threshold:.3f} (top {100 - percentile:.0f}% of pairs)")
+    print(f"Edge threshold: {threshold:.3f} (top {100 - percentile:.0f}% of pairs)", file=sys.stderr)
 
     edges = []
     edge_counts = np.zeros(len(conversations), dtype=int)
@@ -195,7 +196,7 @@ def build_edges(embeddings: np.ndarray, conversations: list,
             edge_counts[j] += 1
 
     print(f"Created {len(edges)} edges (threshold={threshold:.3f}, "
-          f"max {max_edges_per_node}/node)")
+          f"max {max_edges_per_node}/node)", file=sys.stderr)
     return edges
 
 
@@ -376,4 +377,4 @@ def save_pipeline_output(conversations: list, embeddings: np.ndarray,
     with open(os.path.join(data_dir, 'graph_data.json'), 'w') as f:
         json.dump(graph_data, f)
 
-    print(f"Pipeline output saved to {data_dir}/")
+    print(f"Pipeline output saved to {data_dir}/", file=sys.stderr)

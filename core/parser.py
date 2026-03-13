@@ -7,6 +7,7 @@ V3 supports Claude exports only.
 import json
 import os
 import re
+import sys
 import zipfile
 from datetime import datetime
 
@@ -122,7 +123,7 @@ def parse_claude_export(filepath: str) -> list:
     Returns list of conversation dicts with:
         id, name, created_at, provider, messages, user_messages
     """
-    print(f"Parsing {filepath}...")
+    print(f"Parsing {filepath}...", file=sys.stderr)
 
     with open(filepath, 'r', encoding='utf-8') as f:
         raw = json.load(f)
@@ -172,7 +173,7 @@ def parse_claude_export(filepath: str) -> list:
         })
 
     print(f"Parsed {len(conversations)} conversations with "
-          f"{sum(len(c['messages']) for c in conversations)} messages")
+          f"{sum(len(c['messages']) for c in conversations)} messages", file=sys.stderr)
     return conversations
 
 
