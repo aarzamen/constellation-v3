@@ -60,7 +60,7 @@ COLORS = {
     'amber': '#d9a857',
 }
 
-VERSION = '4.4'
+VERSION = '4.5'
 
 
 # --- Server Probes ---
@@ -138,7 +138,7 @@ def is_pid_alive(pid):
     try:
         os.kill(pid, 0)
         return True
-    except (OSError, ProcessError):
+    except (OSError, ProcessLookupError):
         return False
     except Exception:
         return False
@@ -634,15 +634,14 @@ class ConstellationHelper(ctk.CTk):
                     start_new_session=True,
                 )
                 # Read output to find the tunnel URL
+                import re
                 for line in self.tunnel_process.stdout:
-                    if '.trycloudflare.com' in line or 'https://' in line:
-                        import re
-                        match = re.search(r'https://[^\s]+', line)
-                        if match:
-                            url = match.group(0)
-                            self.tunnel_url = url
-                            self.after(0, self._update_tunnel_display)
-                            break
+                    # Only match actual tunnel URLs, not Cloudflare terms/policy pages
+                    match = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com[^\s]*', line)
+                    if match:
+                        self.tunnel_url = match.group(0)
+                        self.after(0, self._update_tunnel_display)
+                        break
             except FileNotFoundError:
                 self.after(0, lambda: self._set_status(
                     'cloudflared not found. Install: brew install cloudflared'))
@@ -675,9 +674,9 @@ class ConstellationHelper(ctk.CTk):
         ctk.CTkLabel(dialog, text='Provider:', font=('Helvetica', 13),
                      text_color=COLORS['text']).pack(padx=20, pady=(15, 5), anchor='w')
 
-        provider_var = ctk.StringVar(value='chatgpt')
+        provider_var = ctk.StringVar(value='claude')
         provider_menu = ctk.CTkOptionMenu(
-            dialog, values=['chatgpt', 'gemini', 'grok'],
+            dialog, values=['claude', 'chatgpt', 'gemini', 'grok'],
             variable=provider_var,
             fg_color=COLORS['surface'], button_color=COLORS['violet'],
             button_hover_color=COLORS['violet_bright'],
@@ -720,12 +719,17 @@ class ConstellationHelper(ctk.CTk):
             if not path:
                 return
             config = ensure_config()
-            if 'sources' not in config:
-                config['sources'] = {}
-            source_entry = {'path': os.path.abspath(path)}
-            if os.path.isdir(path):
-                source_entry['type'] = 'directory'
-            config['sources'][provider] = source_entry
+            abs_path = os.path.abspath(path)
+            if provider == 'claude':
+                # Claude uses the top-level source.path key
+                config['source']['path'] = abs_path
+            else:
+                if 'sources' not in config:
+                    config['sources'] = {}
+                source_entry = {'path': abs_path}
+                if os.path.isdir(path):
+                    source_entry['type'] = 'directory'
+                config['sources'][provider] = source_entry
             save_config(config)
 
             # Update display
@@ -789,9 +793,14 @@ class ConstellationHelper(ctk.CTk):
 
         # Button states
         both_running = rest_ok and mcp_ok
+        neither_running = not rest_ok and not mcp_ok
         self.start_btn.configure(
             state='disabled' if both_running else 'normal',
             fg_color=COLORS['border'] if both_running else COLORS['green'],
+        )
+        self.stop_btn.configure(
+            state='disabled' if neither_running else 'normal',
+            fg_color=COLORS['border'] if neither_running else COLORS['red'],
         )
 
         # Stats display

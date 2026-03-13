@@ -26,8 +26,11 @@ BANNER = """
 """
 
 
-def find_source(config: dict, source_arg: str = None) -> str:
-    """Locate the Claude export conversations.json file."""
+def find_source(config: dict, source_arg: str = None, headless: bool = False) -> str:
+    """Locate the Claude export conversations.json file.
+
+    When headless=True, never call input() — auto-select or exit with error.
+    """
     # 1. Command-line argument
     if source_arg:
         if os.path.isfile(source_arg):
@@ -51,6 +54,10 @@ def find_source(config: dict, source_arg: str = None) -> str:
             found = [('json', os.path.abspath('conversations.json'))]
 
     if not found:
+        if headless:
+            print("Error: No Claude export found and no source configured.")
+            print("Run interactively first, or use --source /path/to/conversations.json")
+            sys.exit(1)
         print("\nNo Claude export found in ~/Downloads/")
         print("Please provide the path to your conversations.json:")
         path = input("> ").strip().strip('"').strip("'")
@@ -73,6 +80,9 @@ def find_source(config: dict, source_arg: str = None) -> str:
     if len(found) == 1:
         file_type, path = found[0]
         print(f"Found: {path}")
+        if headless:
+            # Auto-select the only export found
+            return resolve_source(file_type, path)
         try:
             confirm = input("Is this the export you want to use? [Y/n] ").strip().lower()
         except EOFError:
@@ -82,6 +92,12 @@ def find_source(config: dict, source_arg: str = None) -> str:
         sys.exit(0)
 
     # Multiple found
+    if headless:
+        # Auto-select the first (most recent) export
+        file_type, path = found[0]
+        print(f"Auto-selecting: {path}")
+        return resolve_source(file_type, path)
+
     print(f"\nFound {len(found)} Claude exports:")
     for i, (ft, path) in enumerate(found):
         label = f" (zip)" if ft == 'zip' else ""
@@ -287,7 +303,7 @@ def main():
     if args.port:
         config['server']['port'] = args.port
 
-    source_path = find_source(config, args.source)
+    source_path = find_source(config, args.source, headless=args.headless)
     conversations = run_pipeline_parse(source_path)
 
     # Collect additional sources from --chatgpt-source and --add-source flags
