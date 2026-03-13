@@ -82,12 +82,32 @@ function showSearchResults(nodes, type) {
     const resultsDiv = document.getElementById('search-results');
     const label = type === 'hybrid' ? ' (hybrid)' : ' (keyword)';
 
-    resultsDiv.innerHTML = nodes.map(n => `
-        <div class="search-result" onclick="focusNode('${n.id}', document.getElementById('search-input').value)">
-            <strong>${escapeHtml(n.name)}</strong>${label}
-            <br><small>${n.date || ''}${n.score ? ' \u00b7 Semantic: ' + (n.score * 100).toFixed(0) + '% | RRF: ' + (n.rrf_score ? n.rrf_score.toFixed(3) : '') : ''}</small>
-        </div>
-    `).join('');
+    resultsDiv.innerHTML = '';
+    nodes.forEach(n => {
+        const div = document.createElement('div');
+        div.className = 'search-result';
+        div.dataset.id = n.id;
+        div.addEventListener('click', () => {
+            focusNode(n.id, document.getElementById('search-input').value);
+        });
+
+        const strong = document.createElement('strong');
+        strong.textContent = n.name;
+        div.appendChild(strong);
+        div.appendChild(document.createTextNode(label));
+        div.appendChild(document.createElement('br'));
+
+        const small = document.createElement('small');
+        let detail = n.date || '';
+        if (n.score) {
+            detail += ' \u00b7 Semantic: ' + (n.score * 100).toFixed(0) + '%';
+            if (n.rrf_score) detail += ' | RRF: ' + n.rrf_score.toFixed(3);
+        }
+        small.textContent = detail;
+        div.appendChild(small);
+
+        resultsDiv.appendChild(div);
+    });
 }
 
 function focusNode(nodeId, query = '') {

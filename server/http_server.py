@@ -5,6 +5,7 @@ Serves static frontend files + REST API.
 
 import json
 import os
+import sys
 import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -15,6 +16,7 @@ from core.config import DATA_DIR, PROJECT_ROOT
 from server.api import SearchEngine
 
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'frontend')
+MAX_REQUEST_BODY = 10 * 1024 * 1024  # 10MB
 
 search_engine = SearchEngine()
 _server_start_time = time.time()
@@ -59,6 +61,15 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
             return self.handle_search()
 
         self.send_error(404)
+
+    def do_OPTIONS(self):
+        """Handle CORS preflight requests."""
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id')
+        self.send_header('Access-Control-Max-Age', '86400')
+        self.end_headers()
 
     def do_DELETE(self):
         parsed = urlparse(self.path)
@@ -143,7 +154,18 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def handle_search(self):
-        content_length = int(self.headers.get('Content-Length', 0))
+        content_length_str = self.headers.get('Content-Length')
+        if content_length_str is None:
+            self.send_error(411, 'Length Required')
+            return
+        try:
+            content_length = int(content_length_str)
+        except (ValueError, TypeError):
+            self.send_error(400, 'Invalid Content-Length')
+            return
+        if content_length > MAX_REQUEST_BODY:
+            self.send_error(413, 'Payload Too Large')
+            return
         body = self.rfile.read(content_length)
         try:
             data = json.loads(body)
@@ -233,6 +255,11 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
         with open(graph_path, 'w') as f:
             json.dump(graph_data, f)
 
+        # Save clusters.json for consistency
+        clusters_path = os.path.join(DATA_DIR, 'clusters.json')
+        with open(clusters_path, 'w') as f:
+            json.dump({'k': k, 'clusters': graph_data.get('clusters', [])}, f, indent=2)
+
         return graph_data
 
     def send_json(self, data, status=200):
@@ -269,12 +296,12 @@ def run_server(host='127.0.0.1', port=8420, headless=False):
         search_engine.load()
     except FileNotFoundError:
         if not headless:
-            print("Warning: Data files not found. Run pipeline first.")
+            print("Warning: Data files not found. Run pipeline first.", file=sys.stderr)
 
     server = HTTPServer((host, port), ConstellationHandler)
-    print(f"Server running at http://{host}:{port}")
+    print(f"Server running at http://{host}:{port}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        print("\nShutting down...", file=sys.stderr)
         server.shutdown()
