@@ -21,6 +21,15 @@ display:
   colorblind_mode: false
   layout: "3d-force"  # "3d-force", "2d-flat", "by-cluster", "temporal-helix"
 
+# Additional data sources (optional)
+# sources:
+#   chatgpt:
+#     path: /path/to/chatgpt/conversations.json
+#   gemini:
+#     path: /path/to/gemini/ai-studio/folder
+#   grok:
+#     path: /path/to/grok/export.json
+
 # MCP server
 mcp:
   enabled: true

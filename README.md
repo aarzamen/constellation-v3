@@ -72,11 +72,24 @@ curl http://localhost:8420/api/conversation/<uuid>
 curl http://localhost:8420/api/stats
 ```
 
+## Multi-Provider Support
+
+Constellation indexes conversations from multiple AI providers in a unified
+semantic space. Conversations cluster by topic, not by provider.
+
+Supported providers:
+- **Claude** (Anthropic) — sphere nodes
+- **ChatGPT** (OpenAI) — octahedron nodes
+- **Gemini** (Google) — dodecahedron nodes
+- **Grok** (xAI) — icosahedron nodes (stub parser)
+
+See [DEPLOY.md](DEPLOY.md) for ingestion commands.
+
 ## Requirements
 
 - Python 3.9+
 - ~80MB disk for embedding model (downloaded once, cached)
-- A Claude export (`conversations.json`)
+- A Claude or ChatGPT export (see DEPLOY.md for all formats)
 
 ```bash
 pip install -r requirements.txt
