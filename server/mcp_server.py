@@ -206,6 +206,14 @@ def get_stats() -> dict:
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Constellation MCP Server')
+    parser.add_argument('--transport', choices=['stdio', 'http', 'sse', 'streamable-http'],
+                        default='stdio', help='MCP transport (default: stdio)')
+    parser.add_argument('--port', type=int, default=8000, help='Port for HTTP transports (default: 8000)')
+    parser.add_argument('--host', default='127.0.0.1', help='Host for HTTP transports (default: 127.0.0.1)')
+    args = parser.parse_args()
+
     # Pre-load embedding model to avoid cold-start latency on first search
     try:
         engine.load()
@@ -219,4 +227,8 @@ if __name__ == '__main__':
     except Exception as e:
         logger.warning(f"Could not pre-load model: {e}")
 
-    mcp.run()
+    transport_kwargs = {}
+    if args.transport != 'stdio':
+        transport_kwargs['host'] = args.host
+        transport_kwargs['port'] = args.port
+    mcp.run(transport=args.transport, **transport_kwargs)
