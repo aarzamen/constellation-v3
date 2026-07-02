@@ -227,8 +227,29 @@ if __name__ == '__main__':
     except Exception as e:
         logger.warning(f"Could not pre-load model: {e}")
 
-    transport_kwargs = {}
-    if args.transport != 'stdio':
-        transport_kwargs['host'] = args.host
-        transport_kwargs['port'] = args.port
-    mcp.run(transport=args.transport, **transport_kwargs)
+    if args.transport == 'stdio':
+        # Local Claude Desktop / Claude Code subprocess — no HTTP surface, no gate.
+        mcp.run(transport='stdio')
+    else:
+        # HTTP transports are the public origin behind cloudflared. Wrap the
+        # Starlette app with the fail-closed Cloudflare Access gate and expose
+        # an unauthenticated loopback /health probe.
+        from starlette.responses import JSONResponse
+        from server.access_gate import AccessConfig, access_middleware
+
+        @mcp.custom_route('/health', methods=['GET'])
+        async def health(_request):
+            cfg = AccessConfig()
+            return JSONResponse({
+                'status': 'ok',
+                'service': 'constellation-mcp',
+                'require_access': cfg.require,
+                'access_configured': cfg.configured,
+            })
+
+        app = mcp.http_app(transport=args.transport, middleware=access_middleware())
+        import uvicorn
+        logger.info("Serving MCP over %s on %s:%s (require_access=%s)",
+                    args.transport, args.host, args.port,
+                    os.environ.get('CONSTELLATION_REQUIRE_ACCESS', '1'))
+        uvicorn.run(app, host=args.host, port=args.port, log_level='info')
