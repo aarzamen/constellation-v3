@@ -11,6 +11,12 @@ ok()   { printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 bad()  { printf "  \033[31mFAIL\033[0m %s\n      remedy: %s\n" "$1" "$2"; FAIL=1; }
 info() { printf "  \033[36mINFO\033[0m %s\n" "$1"; }
 
+# Air-side gate: on clyde-air these are hard requirements (FAIL); elsewhere
+# (e.g. the MBP repo source) they stay advisory (INFO). Keyed on LocalHostName,
+# which is reliably 'clyde-air' even when the network hostname differs (.lan).
+HOST="$(scutil --get LocalHostName 2>/dev/null || hostname -s)"
+airgate() { if [[ "$HOST" == "clyde-air" ]]; then bad "$1" "$2"; else info "$1"; fi; }
+
 echo "== Constellation preflight $(date -u +%FT%TZ) on $(hostname) =="
 
 # --- binaries ---
@@ -18,8 +24,9 @@ for bin in git jq rsync curl lsof; do
   command -v "$bin" >/dev/null && ok "binary: $bin" || bad "binary: $bin missing" "brew install $bin"
 done
 command -v cloudflared >/dev/null && ok "binary: cloudflared $(cloudflared --version 2>/dev/null | head -1)" \
-  || info "cloudflared absent (fine on MBP; required on the Air)"
-command -v tailscale >/dev/null && ok "binary: tailscale" || info "tailscale absent (required on the Air)"
+  || airgate "cloudflared absent (required on the Air)" "brew install cloudflared"
+command -v tailscale >/dev/null && ok "binary: tailscale" \
+  || airgate "tailscale absent (required on the Air)" "brew install --cask tailscale, then Tailscale menu -> Install CLI"
 
 # --- python / venv ---
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,16 +47,12 @@ fi
 if [[ -f "$REPO/.env" ]]; then
   PERM=$(stat -f "%Lp" "$REPO/.env")
   [[ "$PERM" == "600" ]] && ok ".env exists, mode 600" || bad ".env mode is $PERM" "chmod 600 $REPO/.env"
-  if [[ -x "$VPY" ]]; then
-    if REPO_ENV="$REPO/.env" "$VPY" - <<'PY'
-import os
-from dotenv import load_dotenv
-load_dotenv(os.environ["REPO_ENV"], override=True)
-raise SystemExit(0 if bool(os.environ.get("ANTHROPIC_API_KEY")) else 1)
-PY
-    then ok "ANTHROPIC_API_KEY present (bool check)"
-    else info "ANTHROPIC_API_KEY empty — not consumed until Phase 1 Dream Cycle (flip to FAIL then)"  # PHASE1: make this bad()
-    fi
+  # presence-only, never echo the value; stdlib grep avoids a python-dotenv dep
+  # (not in requirements.txt; deps stay frozen). PHASE1: now a hard gate on the Air.
+  if grep -Eq '^[[:space:]]*ANTHROPIC_API_KEY[[:space:]]*=[[:space:]]*.+' "$REPO/.env"; then
+    ok "ANTHROPIC_API_KEY present (bool check)"
+  else
+    airgate "ANTHROPIC_API_KEY empty (required on the Air for Phase 1 Dream Cycle)" "add ANTHROPIC_API_KEY=<key> to $REPO/.env"
   fi
 else
   bad ".env missing" "touch $REPO/.env && chmod 600 $REPO/.env (already gitignored)"

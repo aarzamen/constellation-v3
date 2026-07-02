@@ -34,3 +34,38 @@ One line each of why: a persistent write to the publicly-served instance crossed
 ### Migrate the 5 hailo-switcher notes off the dev thread (Phase 1, on the iMac dataset)
 
 Notes `ae94e974`, `2532cf08`, `a16b4ebf`, `fafb880d`, `ec8b95dc` live only on the iMac's `data/notes.json` (dev thread `3363bc73-af8f-45c2-a34e-13fed9ea53af`). Migration = add copies to the target conversation, verify readable, then delete the originals — all writes on the iMac instance, forbidden in Phase 0. Additionally, **no confident target exists**: remote search for the hailo-switcher spec session returned only tangential candidates, best two being `68037ea9-0558-8008-bcfe-d16a0fa1ad3a` ("RPI 5 Hailo NPU Setup", ChatGPT 2025-04-19) and `820c3834-e692-49da-9373-1004838a9cdf` ("Multi-OS setup for RPi 5", Claude 2026-02-11) — both notes_count 0, neither is the spec-writing session (it may never have been ingested; it was likely a Claude Code session). Recommend deciding the target (or ingesting the hailo-switcher Claude Code sessions) during Phase 1's merge, then moving the notes there.
+
+---
+
+## Phase 1 (clyde-air) — human-required
+
+### Install Tailscale on the Air (Group 0 gap — blocks Group 2 Dataset-B pull)
+
+Tailscale was in the Group 0 bootstrap list but is not installed on clyde-air: no `tailscale`
+CLI on PATH and no `/Applications/Tailscale.app`. The tightened preflight now FAILs on this.
+Group 2 pulls Dataset B from the MBP over the tailnet, so this gates the merge.
+
+```bash
+brew install --cask tailscale
+open -a Tailscale            # sign in when the app opens (Mike's tailnet)
+# then expose the CLI: Tailscale menu-bar icon -> "Install CLI…"  (adds /usr/local/bin/tailscale)
+tailscale status            # confirm clyde-air is on the tailnet; note the MBP's tailnet name/IP
+```
+
+Justification: Homebrew cask install + GUI OAuth sign-in cannot be done unattended by the agent.
+
+### Supply ANTHROPIC_API_KEY to the Air's .env (Group 1 step 1)
+
+The agent must never handle the secret value. Mike creates the file; preflight verifies presence
+only (bool check, never echoes the value).
+
+```bash
+cd /Users/ama/dev/constellation-v3
+umask 077 && printf 'ANTHROPIC_API_KEY=%s\n' 'sk-ant-...' > .env   # paste the real key
+chmod 600 .env
+grep -c '^ANTHROPIC_API_KEY=' .env    # expect 1; do NOT print the value
+```
+
+Justification: credential provisioning; `.env` is gitignored and the agent is barred from
+writing or echoing secrets. After this + Tailscale, the only remaining preflight FAIL is
+`data/notes.json`, which Group 2's union merge resolves.
