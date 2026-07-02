@@ -29,6 +29,8 @@ to Phase 1 (see MANUAL_STEPS.md in repo).
 
 One line each of why: a persistent write to the publicly-served instance crossed the sprint's "do not touch the iMac" boundary (enforced by the permission classifier).
 
+**DONE 2026-07-01** — posted from claude.ai via the Constellation connector, note_id `605d41be`; serving-instance dev thread now carries 16 notes.
+
 ### Migrate the 5 hailo-switcher notes off the dev thread (Phase 1, on the iMac dataset)
 
 Notes `ae94e974`, `2532cf08`, `a16b4ebf`, `fafb880d`, `ec8b95dc` live only on the iMac's `data/notes.json` (dev thread `3363bc73-af8f-45c2-a34e-13fed9ea53af`). Migration = add copies to the target conversation, verify readable, then delete the originals — all writes on the iMac instance, forbidden in Phase 0. Additionally, **no confident target exists**: remote search for the hailo-switcher spec session returned only tangential candidates, best two being `68037ea9-0558-8008-bcfe-d16a0fa1ad3a` ("RPI 5 Hailo NPU Setup", ChatGPT 2025-04-19) and `820c3834-e692-49da-9373-1004838a9cdf` ("Multi-OS setup for RPi 5", Claude 2026-02-11) — both notes_count 0, neither is the spec-writing session (it may never have been ingested; it was likely a Claude Code session). Recommend deciding the target (or ingesting the hailo-switcher Claude Code sessions) during Phase 1's merge, then moving the notes there.
