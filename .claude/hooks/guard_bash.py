@@ -75,8 +75,11 @@ def main():
         # Rule 1: python/pip outside the venv, bare or by absolute path
         # (uv run / uv pip are fine — their command word is 'uv').
         if BARE_PYTHON_RE.match(base) and '.venv/bin/' not in word:
-            block('Use .venv/bin/python — system Python is 3.13 and will '
-                  'corrupt the environment.')
+            block('Use the relative form `.venv/bin/python` from the '
+                  'project root — it matches the Bash(.venv/bin/*) '
+                  'permissions allowlist (absolute or $CLAUDE_PROJECT_DIR-'
+                  'prefixed paths get denied). System Python will corrupt '
+                  'the environment.')
 
         # Rule 2: rm touching notes, data/, or backups/.
         if base == 'rm' and PROTECTED_RM_RE.search(segment):
