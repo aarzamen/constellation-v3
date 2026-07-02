@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# preflight.sh — Constellation environment gate. Exit nonzero = do not proceed.
+#
+# Adaptations from the Phase 0 spec (probed 2026-07-01):
+#   * notes.json schema is {conversation_id: [note, ...]} -> count = sum of list lengths
+#   * No code in this repo consumes ANTHROPIC_API_KEY yet (Dream Cycle lands Phase 1),
+#     so an empty key is INFO, not FAIL. Flip the marked line to `bad` in Phase 1.
+set -uo pipefail
+FAIL=0
+ok()   { printf "  \033[32mPASS\033[0m %s\n" "$1"; }
+bad()  { printf "  \033[31mFAIL\033[0m %s\n      remedy: %s\n" "$1" "$2"; FAIL=1; }
+info() { printf "  \033[36mINFO\033[0m %s\n" "$1"; }
+
+echo "== Constellation preflight $(date -u +%FT%TZ) on $(hostname) =="
+
+# --- binaries ---
+for bin in git jq rsync curl lsof; do
+  command -v "$bin" >/dev/null && ok "binary: $bin" || bad "binary: $bin missing" "brew install $bin"
+done
+command -v cloudflared >/dev/null && ok "binary: cloudflared $(cloudflared --version 2>/dev/null | head -1)" \
+  || info "cloudflared absent (fine on MBP; required on the Air)"
+command -v tailscale >/dev/null && ok "binary: tailscale" || info "tailscale absent (required on the Air)"
+
+# --- python / venv ---
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+VPY="$REPO/.venv/bin/python"
+if [[ -x "$VPY" ]]; then
+  PYV="$("$VPY" --version 2>&1)"
+  [[ "$PYV" == *"3.12."* ]] && ok "venv python: $PYV" || bad "venv python is $PYV, need 3.12.x" "uv venv --python 3.12 $REPO/.venv && $REPO/.venv/bin/pip install -r $REPO/requirements.txt"
+else
+  bad ".venv missing at $REPO/.venv" "uv venv --python 3.12 $REPO/.venv && $REPO/.venv/bin/pip install -r $REPO/requirements.txt"
+fi
+if [[ -x "$VPY" ]]; then
+  for mod in numpy sentence_transformers yaml fastmcp pytest; do
+    "$VPY" -c "import $mod" 2>/dev/null && ok "import: $mod" || bad "import: $mod" "$REPO/.venv/bin/pip install $mod"
+  done
+fi
+
+# --- secrets (presence only, never values) ---
+if [[ -f "$REPO/.env" ]]; then
+  PERM=$(stat -f "%Lp" "$REPO/.env")
+  [[ "$PERM" == "600" ]] && ok ".env exists, mode 600" || bad ".env mode is $PERM" "chmod 600 $REPO/.env"
+  if [[ -x "$VPY" ]]; then
+    if REPO_ENV="$REPO/.env" "$VPY" - <<'PY'
+import os
+from dotenv import load_dotenv
+load_dotenv(os.environ["REPO_ENV"], override=True)
+raise SystemExit(0 if bool(os.environ.get("ANTHROPIC_API_KEY")) else 1)
+PY
+    then ok "ANTHROPIC_API_KEY present (bool check)"
+    else info "ANTHROPIC_API_KEY empty — not consumed until Phase 1 Dream Cycle (flip to FAIL then)"  # PHASE1: make this bad()
+    fi
+  fi
+else
+  bad ".env missing" "touch $REPO/.env && chmod 600 $REPO/.env (already gitignored)"
+fi
+grep -q '^\.env$' "$REPO/.gitignore" 2>/dev/null && ok ".env gitignored" || bad ".env not in .gitignore" "echo .env >> $REPO/.gitignore"
+
+# --- git state ---
+cd "$REPO"
+BR=$(git branch --show-current)
+[[ "$BR" == "main" ]] && ok "branch: main" || bad "branch: $BR" "git checkout main"
+git remote get-url origin >/dev/null 2>&1 && ok "remote: origin set" || info "no origin remote"
+[[ -z "$(git status --porcelain)" ]] && ok "working tree clean" || info "uncommitted changes present: $(git status --porcelain | wc -l | tr -d ' ') files"
+
+# --- data integrity ---
+if [[ -f "$REPO/data/notes.json" ]]; then
+  NOTES=$("$VPY" -c "import json; d=json.load(open('$REPO/data/notes.json')); print(sum(len(v) for v in d.values()))" 2>/dev/null || echo '?')
+  ok "data/notes.json present ($NOTES notes)"
+else
+  bad "data/notes.json missing" "restore from $REPO/backups/ (most recent notes.json.*)"
+fi
+
+echo "== preflight $( [[ $FAIL -eq 0 ]] && echo PASSED || echo FAILED ) =="
+exit $FAIL
