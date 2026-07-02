@@ -143,10 +143,18 @@ def run_pipeline_embed(conversations: list, source_path: str, config: dict,
     from core.indexer import (
         embed_conversations, build_clusters, build_edges, build_graph_data, save_pipeline_output
     )
+    from core.notes import load_notes, save_notes, merge_notes, backup_notes
     import numpy as np
     import json as _json
 
     ensure_data_dir()
+
+    # Group 4 guardrail (Mar 29 data-loss fix): snapshot the notes sidecar
+    # BEFORE any rebuild work, and back it up to backups/ (retain 10).
+    preserved_notes = load_notes(DATA_DIR)
+    backup_path = backup_notes(DATA_DIR)
+    if backup_path:
+        print(f"Notes backed up to {backup_path}", file=sys.stderr)
     _progress_line('init', 0, len(conversations),
                    f'{len(conversations)} conversations')
 
@@ -261,6 +269,14 @@ def run_pipeline_embed(conversations: list, source_path: str, config: dict,
     graph_data = build_graph_data(conversations, embeddings, cluster_info, edges)
 
     save_pipeline_output(conversations, embeddings, chunk_embeddings, final_chunk_map, graph_data, DATA_DIR)
+
+    # Group 4 guardrail: merge the pre-rebuild notes snapshot with whatever
+    # is on disk now (union by note_id — notes added mid-rebuild survive,
+    # nothing preserved is ever dropped). Atomic write via save_notes.
+    merged_notes = merge_notes(preserved_notes, load_notes(DATA_DIR))
+    if merged_notes:
+        save_notes(DATA_DIR, merged_notes)
+
     config['source']['path'] = os.path.abspath(source_path)
     save_config(config)
 
