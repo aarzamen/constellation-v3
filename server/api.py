@@ -31,10 +31,26 @@ class SearchEngine:
         self.conversation_index = {}
         self.embedder = None
         self._loaded = False
+        self._loaded_mtime = None
+
+    def _sentinel_mtime(self):
+        """mtime of conversations.json — the reload trigger. The nightly ingest
+        stamps this file LAST (os.utime) once every artifact is on disk, so a
+        bump here means the whole index generation is consistent to read."""
+        try:
+            return os.path.getmtime(os.path.join(self.data_dir, 'conversations.json'))
+        except OSError:
+            return None
 
     def load(self):
-        """Load embeddings and conversation data from disk."""
-        if self._loaded:
+        """Load (or hot-reload) embeddings and conversation data from disk.
+
+        Reloads transparently when conversations.json mtime advances — the
+        nightly ingest updates the corpus under a long-running server, and the
+        next request picks it up with no restart and no privileges. The
+        embedding model (self.embedder) is preserved across reloads."""
+        mtime = self._sentinel_mtime()
+        if self._loaded and mtime == self._loaded_mtime:
             return
 
         emb_path = os.path.join(self.data_dir, 'embeddings.npy')
@@ -45,6 +61,9 @@ class SearchEngine:
                 f"Data files not found in {self.data_dir}. "
                 "Run the embedding pipeline first."
             )
+
+        # Reset per-load accumulators so a reload doesn't append onto stale state.
+        self.chunk_to_local_idx = []
 
         self.embeddings = np.load(emb_path)
         with open(conv_path, 'r') as f:
@@ -109,6 +128,7 @@ class SearchEngine:
                 pass
 
         self._loaded = True
+        self._loaded_mtime = mtime
         logger.info("Index loaded", extra={
             'conversations': len(self.conversations),
             'messages': sum(len(c.get('messages', [])) for c in self.conversations),
