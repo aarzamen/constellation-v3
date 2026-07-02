@@ -11,6 +11,8 @@ build/
 # Data (large files, user-specific)
 data/
 *.npy
+backups/
+constellation work/
 
 # Config (user-specific)
 config.yaml
