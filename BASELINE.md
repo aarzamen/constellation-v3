@@ -86,3 +86,43 @@ Every top-level git repo under `/Users/ama` audited with `git log --since='2026-
 | constellation-v3 + 27 other repos | 0 each |
 
 **Verdict: measurement gap, not a real audit failure.** 210 commits landed across 7 repos in the window. The June sessions simply worked in repos (or non-repo dirs) the tracker didn't inspect; constellation-v3 itself genuinely had 0 commits in the window (last commit `ad45e6b` predates it).
+
+---
+
+# FINAL — Phase 0 Closeout (2026-07-01)
+
+## Note count reconciliation
+
+| | Count | Detail |
+|---|---|---|
+| Baseline | **13** | 10 conversations (inventory above) |
+| Healthcheck round-trip | +1 −1 | `[PHASE0-HEALTHCHECK]` note added and deleted by Group 2 — net zero |
+| Widmark restore | **+0** | **The original `face018c` (2026-03-15) survives INTACT in this machine's sidecar** — the March loss destroyed the iMac's copy only. Nothing to restore locally; Phase 1's `merge_notes` union carries it back to the serving instance. |
+| Hailo migration | ±0 | The 5 notes (`ae94e974`, `2532cf08`, `a16b4ebf`, `fafb880d`, `ec8b95dc`) exist only on the iMac's dataset; migration needs remote writes (forbidden in Phase 0) and has no confident target — deferred with candidates in MANUAL_STEPS.md |
+| Closeout GRAVITY note | ±0 local | Target dev thread `3363bc73…` exists only on the iMac; remote write blocked by the sprint's own boundary — exact text staged in MANUAL_STEPS.md |
+| **Final** | **13** | Verified identical to `backups/notes.json.pre-phase0.20260701T190843` (byte-for-byte diff) |
+
+All movements accounted for: **13 = 13 + 0 restored + 0 migrated − 0 deleted.** No note was deleted this sprint.
+
+## Key reconciliation discovery
+
+The parent spec's Group 6 was written against the iMac's dataset. The Group 2 divergence guard measured it: public tunnel = (27,095 messages, max 2026-03-20) vs this machine = (25,196, 2026-03-07). Every spec-referenced note ID exists on the remote dev thread (verified read-only: 15 notes including `06298723`, `f56c3e65`, and the 5 hailo notes). Note `f56c3e65` (timestamps TODO) is **resolved** by Group 5's fix — recorded in the staged closeout note.
+
+## pytest delta
+
+| | Tests |
+|---|---|
+| Baseline | 101 passed |
+| Final | **166 passed** (+7 MCP health, +44 hooks, +10 notes-merge, +4 timestamps) |
+
+## Sprint commits
+
+```
+be3576f chore: phase 0 baseline snapshot
+4c07d12 feat: scripts/preflight.sh — environment gate (Group 1)
+251ceec feat: MCP health gate — stdio, binding, round-trip, divergence (Group 2)
+631dae7 feat: guardrail hooks — venv/force/reembed guards + stop discipline (Group 3)
+032bad0 fix: merge notes.json on re-embed (closes the Mar 29 data-loss bug)
+047bd59 fix: get_conversation surfaces per-message timestamps (Group 5)
+(+ this Group 6 closeout commit)
+```
