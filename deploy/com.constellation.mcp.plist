@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Constellation MCP server — system LaunchDaemon (Group 3, clyde-air).
+  Serves the MCP over streamable-http on 127.0.0.1:8000 ONLY (never 0.0.0.0);
+  the only public path is cloudflared -> this loopback origin. Runs as user
+  `ama` (not root) so notes.json / data writes keep correct ownership, but
+  starts at boot with no login (canonical 24/7 host).
+
+  Install: deploy/install.sh (sudo cp to /Library/LaunchDaemons + bootstrap).
+  DO NOT put ANTHROPIC_API_KEY here — /Library/LaunchDaemons is world-readable.
+  The origin access gate is armed via CONSTELLATION_REQUIRE_ACCESS=1; fill the
+  ACCESS_TEAM_DOMAIN / ACCESS_AUD placeholders from the morning Cloudflare
+  Access app before/at bootstrap (see MANUAL_STEPS.md).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.constellation.mcp</string>
+
+    <key>UserName</key>
+    <string>ama</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ama/dev/constellation-v3</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ama/dev/constellation-v3/.venv/bin/python</string>
+        <string>/Users/ama/dev/constellation-v3/server/mcp_server.py</string>
+        <string>--transport</string>
+        <string>streamable-http</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CONSTELLATION_DATA_DIR</key>
+        <string>/Users/ama/dev/constellation-v3/data</string>
+        <key>CONSTELLATION_REQUIRE_ACCESS</key>
+        <string>1</string>
+        <!-- Fill from the Cloudflare Access app (MANUAL_STEPS morning runbook): -->
+        <key>CONSTELLATION_ACCESS_TEAM_DOMAIN</key>
+        <string>https://REPLACE_ME.cloudflareaccess.com</string>
+        <key>CONSTELLATION_ACCESS_AUD</key>
+        <string>REPLACE_ME_ACCESS_APP_AUD</string>
+        <key>TOKENIZERS_PARALLELISM</key>
+        <string>false</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ama/dev/constellation-v3/data/logs/mcp.daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ama/dev/constellation-v3/data/logs/mcp.daemon.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
