@@ -251,7 +251,10 @@ class SearchEngine:
                 {
                     'role': m['role'],
                     'text': m['text'],
-                    'timestamp': m.get('created_at', ''),
+                    # Messages store their timestamp under 'timestamp' (set by
+                    # every parser since v4.4); 'created_at' kept as fallback
+                    # for any pre-v4.4 data still on disk.
+                    'timestamp': m.get('timestamp', m.get('created_at', '')),
                 }
                 for m in conv.get('messages', [])
             ],
