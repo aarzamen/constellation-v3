@@ -1,0 +1,25 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/tmp/transcript.jsonl",
+  "cwd": "/repo",
+  "prompt_id": "00000000",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": ".venv/bin/python -m pytest tests/test_notes.py -q 2>&1 | tail -2",
+    "description": "Run notes tests"
+  },
+  "tool_response": {
+    "stdout": ".................................                                        [100%]\n33 passed in 0.54s",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_fixture",
+  "duration_ms": 540
+}

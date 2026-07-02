@@ -5,9 +5,16 @@ Design choice (spec left it open): the TESTED flag is maintained here rather
 than in guard_bash.py because only PostToolUse sees the command's OUTPUT —
 a PreToolUse hook cannot know whether pytest actually passed.
 
-When a Bash command ran pytest and its summary line shows passes with no
+When a Bash command ran pytest and its output shows passing tests with no
 failures/errors: touch .claude/flags/TESTED and remove .claude/flags/EDITED.
 Always exits 0 — this hook observes, it never blocks.
+
+Pass detection is on the OUTCOME COUNTS (`N passed`, and no `N failed` /
+`N error`), NOT on pytest's `==== ... ====` banner. The banner is stripped
+when output is piped through `tail`/`grep`/`head` or run under `-q` with no
+warnings summary (real captured event: stdout ended `33 passed in 0.54s`
+with no `=` decoration), which silently defeated the old regex and left
+stop_discipline blocking a clean, tested tree. Counts survive all of that.
 """
 
 import json
@@ -20,7 +27,18 @@ PROJECT_DIR = Path(os.environ.get('CLAUDE_PROJECT_DIR',
                                   Path(__file__).resolve().parent.parent.parent))
 FLAGS = PROJECT_DIR / '.claude' / 'flags'
 
-SUMMARY_RE = re.compile(r'=+ (.*) =+')
+# "33 passed", "166 passed, 4 warnings", "==== 166 passed ====" all match.
+PASSED_RE = re.compile(r'\b(\d+) passed\b')
+# Real failures: "1 failed", "1 error", "2 errors". Does NOT match "1 xfailed"
+# (that token is "xfailed", not " failed") or "0 selected".
+FAILED_RE = re.compile(r'\b(\d+) (?:failed|error)')
+
+
+def ran_pytest_clean(command: str, output: str) -> bool:
+    """True iff `command` invoked pytest and `output` shows a clean pass."""
+    if 'pytest' not in command:
+        return False
+    return bool(PASSED_RE.search(output)) and not FAILED_RE.search(output)
 
 
 def main():
@@ -30,21 +48,13 @@ def main():
         sys.exit(0)
 
     command = (event.get('tool_input') or {}).get('command') or ''
-    if 'pytest' not in command:
-        sys.exit(0)
-
     response = event.get('tool_response') or {}
     if isinstance(response, dict):
         output = (response.get('stdout') or '') + (response.get('stderr') or '')
     else:
         output = str(response)
 
-    verdict = None
-    for m in SUMMARY_RE.finditer(output):
-        verdict = m.group(1)  # keep the LAST summary line
-    if not verdict:
-        sys.exit(0)
-    if 'passed' in verdict and 'failed' not in verdict and 'error' not in verdict:
+    if ran_pytest_clean(command, output):
         FLAGS.mkdir(parents=True, exist_ok=True)
         (FLAGS / 'TESTED').touch()
         edited = FLAGS / 'EDITED'

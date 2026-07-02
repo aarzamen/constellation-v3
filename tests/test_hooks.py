@@ -317,6 +317,37 @@ class TestPostBash(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertFalse((flags / 'TESTED').exists())
 
+    def test_real_piped_event_updates_tested(self):
+        """Regression (Group 3): a REAL captured PostToolUse event whose stdout
+        was piped through `tail` under `-q`, so the summary is bare
+        '33 passed in 0.54s' with NO ==== banner. The old `=+ (.*) =+` regex
+        matched nothing -> TESTED went stale -> stop_discipline blocked a clean,
+        tested tree. Detection now keys on the outcome counts, not the banner."""
+        fixture = json.loads(
+            (REPO / 'tests' / 'fixtures' / 'post_bash_pass_event.json').read_text())
+        stdout = fixture['tool_response']['stdout']
+        self.assertNotIn('====', stdout)          # the exact trigger condition
+        self.assertIn('passed', stdout)
+        with tempfile.TemporaryDirectory() as td:
+            flags = Path(td) / '.claude' / 'flags'
+            flags.mkdir(parents=True)
+            (flags / 'EDITED').touch()
+            code, err = run_hook('post_bash.py', fixture, td)
+            self.assertEqual(code, 0, err)
+            self.assertTrue((flags / 'TESTED').exists(),
+                            'real piped pytest-pass event must set TESTED')
+            self.assertFalse((flags / 'EDITED').exists())
+
+    def test_undecorated_pass_and_xfailed_not_treated_as_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            flags = Path(td) / '.claude' / 'flags'
+            flags.mkdir(parents=True)
+            # bare count, plus an xfailed which must NOT read as 'failed'
+            code, _ = self.run_post(td, 'pytest -q',
+                                    '164 passed, 1 xfailed, 4 warnings in 66s')
+            self.assertEqual(code, 0)
+            self.assertTrue((flags / 'TESTED').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
