@@ -165,3 +165,44 @@ Note: the RPi5 Claude Code JSONL ingest as a general capability remains a Phase 
 
 ### Sanitization posture
 Tonight inherits A/B's unsanitized state; Group 3's Access gate is the compensating control and the sanitizer remains a Group 5 verification item. No sanitization stage added.
+
+## Group 3 — serve + secure (night shift, 2026-07-02)
+
+Night-shift scope: build/stage everything that needs no sudo, browser, or other
+machine; halt at each human wall and record it in the MANUAL_STEPS morning
+runbook. The iMac and MBP were not touched.
+
+### Built + tested tonight (committed, pushed)
+- **Unit 0 — post_bash pass-detection fix.** Root cause found via a *real*
+  captured PostToolUse event: piped/`-q` stdout (`33 passed in 0.54s`) has no
+  `==== ====` banner, so the old `=+ (.*) =+` regex matched nothing and left
+  `TESTED` stale (the 23:57 stop-hook loop). Now keys on outcome counts
+  (`\d+ passed`, no `\d+ failed|error`). Fixture
+  `tests/fixtures/post_bash_pass_event.json` + regression test. `stop_discipline.py`
+  untouched.
+- **Unit 2 — fail-closed Access gate** (`server/access_gate.py`, wired into
+  `server/mcp_server.py`). `CONSTELLATION_REQUIRE_ACCESS=1` ⇒ every HTTP route
+  except `/health` needs a `Cf-Access-Jwt-Assertion` that verifies (RS256, JWKS,
+  aud+iss) or **403**; unconfigured-but-required also 403s. PyJWT + cryptography
+  already in venv (no new dep). 13 unit tests.
+- **Unit 4 — local verification.** `REQUIRE_ACCESS=0`: `/health` 200 + MCP
+  `initialize` round-trip 200 (`mcp-session-id`, serverInfo "Constellation
+  Memory", endpoint `/mcp`). `REQUIRE_ACCESS=1`: no token → 403, garbage → 403,
+  `/health` still 200. Server killed; port 8000 clear.
+- Test suite **166 → 181** (all green).
+
+### Staged, NOT installed (need sudo / browser — see MANUAL_STEPS runbook)
+- **Unit 1 —** `deploy/com.constellation.mcp.plist`, `deploy/com.constellation.tunnel.plist`,
+  `deploy/install.sh`. System LaunchDaemons, run as `ama`, KeepAlive, RunAtLoad,
+  abs `.venv` python, MCP bound `127.0.0.1:8000` only, logs to `data/logs/`. No
+  secret in the world-readable plist; `install.sh` refuses while `REPLACE_ME`
+  placeholders remain.
+- **Unit 3 —** `deploy/cloudflared-config.yml`, named tunnel `constellation-air`,
+  ingress `mcp.constellation-memory.com → http://127.0.0.1:8000`, catch-all 404.
+  Tunnel UUID / creds are `REPLACE_ME` (created at morning `cloudflared` login).
+
+### Human walls (morning runbook, dependency order)
+cloudflared login/create/route → Cloudflare Access app (get AUD + team domain;
+note the claude.ai web-callback caveat + FastMCP-OAuth / service-token fallback)
+→ fill placeholders → `deploy/install.sh` (sudo) → device test matrix (web / iOS
+/ Claude Code) → **only then** stop the iMac serving instance (dormant 30 days).

@@ -74,6 +74,89 @@ writing or echoing secrets. After this + Tailscale, the only remaining preflight
 
 ---
 
+## Phase 1 Group 3 — morning activation runbook (serve + secure)
+
+The night shift built and staged everything that needs no sudo / browser / other
+machine (units 0–4, all committed + tested, 181/181). The steps below are the
+human walls, **in dependency order**. Note: the kickoff listed "install daemons"
+first, but the daemons need the tunnel UUID (tunnel plist) and the Access AUD
+(mcp plist) to exist first — and `deploy/install.sh` refuses to run while the
+`REPLACE_ME` placeholders remain — so tunnel + Access come before install.
+
+### 1. cloudflared: login, create tunnel, route DNS  (browser OAuth — Mike)
+
+```bash
+cloudflared tunnel login                        # browser: authorize the constellation-memory.com zone
+cloudflared tunnel create constellation-air     # prints the tunnel UUID; writes ~/.cloudflared/<UUID>.json
+cloudflared tunnel route dns constellation-air mcp.constellation-memory.com
+cloudflared tunnel list                         # confirm constellation-air; note the UUID
+```
+
+### 2. Cloudflare Access application for the hostname  (Zero Trust dashboard — Mike)
+
+- Zero Trust → Access → Applications → Add → **Self-hosted**.
+- Application domain: `mcp.constellation-memory.com`
+- Policy: **Allow**, include emails → `mikearzamendi@gmail.com` (allowlist).
+- Save, then copy from the app Overview: the **Application Audience (AUD) tag**
+  and your **team domain** (`https://<team>.cloudflareaccess.com`).
+- **claude.ai / claude.com callback caveat:** the claude.ai web MCP connector's
+  OAuth callback has a known interop issue completing Cloudflare Access's login
+  loop. iOS and Claude Code (which do a full browser handoff) are the primary
+  matrix. If the web connector can't complete Access login, use the
+  **FastMCP-OAuth fallback** (below) or attach a Cloudflare Access **service
+  token** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) to the connector.
+
+### 3. Fill the staged placeholders
+
+```bash
+cd /Users/ama/dev/constellation-v3
+UUID='<paste tunnel UUID>'
+sed -i '' "s/REPLACE_ME_TUNNEL_UUID/$UUID/g" deploy/cloudflared-config.yml
+# edit deploy/com.constellation.mcp.plist:
+#   CONSTELLATION_ACCESS_TEAM_DOMAIN -> https://<team>.cloudflareaccess.com
+#   CONSTELLATION_ACCESS_AUD         -> <AUD tag>
+```
+
+### 4. Install the daemons  (sudo — Mike)
+
+```bash
+bash deploy/install.sh          # lints, sudo cp -> /Library/LaunchDaemons, bootstrap+enable+kickstart
+curl -s http://127.0.0.1:8000/health                       # {"status":"ok",...,"access_configured":true}
+sudo launchctl print system/com.constellation.mcp    | grep -E 'state|pid'
+sudo launchctl print system/com.constellation.tunnel | grep -E 'state|pid'
+tail -f data/logs/mcp.daemon.err.log data/logs/tunnel.daemon.err.log
+```
+
+### 5. Device test matrix  (proceed only if ALL pass)
+
+Public URL is `https://mcp.constellation-memory.com/mcp`.
+- **Negative:** `curl -s -o /dev/null -w '%{http_code}\n' https://mcp.constellation-memory.com/mcp` → expect **403** (no Access cookie).
+- **claude.ai web:** add custom connector → complete Access login → tools list → run `search_conversations`.
+- **iOS Claude app:** same connector → Access login → one tool call.
+- **Claude Code:** `claude mcp add --transport http constellation https://mcp.constellation-memory.com/mcp` → Access login → `get_stats`.
+
+### 6. Retire the iMac serving instance  (ONLY after the matrix passes)
+
+The night shift was forbidden to touch the iMac, so first inspect how its
+instance is launched (LaunchAgent / helper / manual), then stop it and leave it
+**dormant, untouched, 30 days**:
+
+```bash
+# on imac@100.81.255.12 — verify the mechanism first, then e.g.:
+launchctl bootout gui/$(id -u)/<constellation-label>    # or stop the helper process
+```
+
+### FastMCP-OAuth fallback (if the Access web callback bug bites)
+
+If the claude.ai web connector can't complete Cloudflare Access login, serve MCP
+auth via FastMCP's own OAuth/bearer provider in front of the tools (in addition
+to Access at the edge for iOS/Code), or issue a Cloudflare Access **service
+token** and configure the web connector headers. The origin gate
+(`CONSTELLATION_REQUIRE_ACCESS=1`) still validates `Cf-Access-Jwt-Assertion`, so
+Access remains the edge control for the clients that can complete it.
+
+---
+
 ## Phase 2 — deferred ingest candidates
 
 ### RPi5 / Claude Code JSONL ingest (new provider parser)
