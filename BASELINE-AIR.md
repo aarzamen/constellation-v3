@@ -206,3 +206,47 @@ cloudflared login/create/route → Cloudflare Access app (get AUD + team domain;
 note the claude.ai web-callback caveat + FastMCP-OAuth / service-token fallback)
 → fill placeholders → `deploy/install.sh` (sudo) → device test matrix (web / iOS
 / Claude Code) → **only then** stop the iMac serving instance (dormant 30 days).
+
+## Phase 2 — nightly Claude Code ingest (2026-07-02)
+
+Scope: this Air + the MBP over tailnet (RPi5 deferred). Everything installed
+tonight is user-domain (no sudo); the iMac/MBP were not modified.
+
+### Components (all committed, tested — suite 181 → 190)
+- **`core/claude_code_parser.py`** (+ registered `claude-code` in
+  `provider_registry`): parses `~/.claude/projects/**/<session>.jsonl` →
+  `local_<uuid>` conversations. Extracts only `text` blocks (drops thinking /
+  tool_use / tool_result), skips `isMeta`/`isSidechain`, title from the last
+  `ai-title`. Deterministic (idempotent).
+- **`scripts/nightly_ingest.py`**: discovers local + MBP (read-only rsync to
+  `staging/`) session JSONLs, **excluding `agent-*` subagent transcripts**;
+  a high-water manifest (`data/nightly_manifest.json`, keyed by conv id with
+  size/mtime/sha256) classifies new/changed/unchanged. Embeds **only new/changed**
+  (retained convs reuse their vectors), dedups by id so re-runs add zero
+  duplicates, rebuilds clusters/edges/graph, and appends a JSON run report to
+  `data/logs/nightly/`. Notes-merge safety: `notes.json` is never written and its
+  sha256 is asserted identical every cycle. `--dry-run` + `flock` lock file.
+- **Serving reload (P2-c): in-server hot-reload chosen** (no privileges, no
+  sudoers). `SearchEngine.load()` reloads when `conversations.json` mtime
+  advances; the ingest stamps that file LAST (`os.utime`) so the daemon reads a
+  consistent generation on the next request. The staged-sudoers fallback for
+  `launchctl kickstart` was **not needed**.
+- **`deploy/com.constellation.nightly.plist`**: USER LaunchAgent, `StartCalendarInterval`
+  03:30 daily, installed via `launchctl bootstrap gui/$UID` (state = loaded,
+  last exit 0).
+
+### Verified end-to-end tonight
+- Manual `--dry-run` → then a real run: **28 sessions embedded** (1 trivial
+  skipped: `local_journal`), corpus **2021 → 2049**, `notes_untouched: true`.
+- Idempotent re-run: `new=0`, and the only `changed=1` is *this live session's*
+  JSONL still growing — re-embedded with corpus **2049 → 2049** (zero dups).
+- Agent-triggered via `launchctl kickstart`: dry-run (no writes) then real run,
+  both `notes_untouched: true`, agent exited 0.
+- Corpus aligned: 2049 convs == emb == graph nodes; providers claude 1278 /
+  **claude-code 48** / chatgpt 723. Notes still 45, canaries intact.
+- Tests (`tests/test_nightly_ingest.py`, 9): manifest new/changed/unchanged,
+  parser idempotency + extraction rules, notes-untouched across a cycle,
+  dry-run writes nothing, hot-reload on/no mtime change.
+
+RPi5 Claude Code JSONL ingest remains deferred (Phase 2 backlog in MANUAL_STEPS);
+tonight covers the Air + MBP only.

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly Claude Code ingest — USER LaunchAgent (Phase 2). Runs at 03:30 daily
+  as the logged-in user (needs no sudo; installed via
+  `launchctl bootstrap gui/$UID`). Pulls MBP sessions read-only over the tailnet,
+  folds new/changed coding sessions into the corpus, and the running MCP daemon
+  hot-reloads on its next request. Idempotent; a flock guards against overlap.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.constellation.nightly</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ama/dev/constellation-v3</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ama/dev/constellation-v3/.venv/bin/python</string>
+        <string>/Users/ama/dev/constellation-v3/scripts/nightly_ingest.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CONSTELLATION_DATA_DIR</key>
+        <string>/Users/ama/dev/constellation-v3/data</string>
+        <key>TOKENIZERS_PARALLELISM</key>
+        <string>false</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ama/dev/constellation-v3/data/logs/nightly/agent.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ama/dev/constellation-v3/data/logs/nightly/agent.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
