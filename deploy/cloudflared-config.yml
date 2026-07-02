@@ -1,0 +1,31 @@
+# cloudflared config for the NAMED tunnel `constellation-air` (Group 3).
+#
+# HUMAN WALL: the tunnel + credentials are created in the morning runbook
+# (browser OAuth login is Mike's) — see MANUAL_STEPS.md. This file is staged,
+# not live. After `cloudflared tunnel create constellation-air`, replace the two
+# REPLACE_ME_TUNNEL_UUID tokens with the printed UUID (the creds file lands at
+# ~/.cloudflared/<UUID>.json).
+#
+# The origin is loopback-only (the MCP daemon binds 127.0.0.1:8000); this tunnel
+# is the sole public path. Cloudflare Access sits in front of the hostname and
+# injects Cf-Access-Jwt-Assertion, which the origin gate re-verifies (fail-closed).
+
+tunnel: REPLACE_ME_TUNNEL_UUID
+credentials-file: /Users/ama/.cloudflared/REPLACE_ME_TUNNEL_UUID.json
+
+# Don't auto-update under launchd; the daemon pins the CLI version.
+no-autoupdate: true
+
+# Optional local metrics endpoint (loopback) for health/observability.
+metrics: 127.0.0.1:20241
+
+ingress:
+  # Public MCP hostname -> loopback origin.
+  - hostname: mcp.constellation-memory.com
+    service: http://127.0.0.1:8000
+    originRequest:
+      # MCP streamable-http keeps long-lived POST/SSE responses open.
+      connectTimeout: 30s
+      noTLSVerify: false
+  # Catch-all: everything else is refused at the edge.
+  - service: http_status:404
