@@ -35,6 +35,12 @@ def _register_builtins():
     register_parser('chatgpt', parse_chatgpt_export)
 
     try:
+        from core.claude_code_parser import parse_claude_code_export
+        register_parser('claude-code', parse_claude_code_export)
+    except ImportError:
+        pass
+
+    try:
         from core.gemini_parser import parse_gemini_export
         register_parser('gemini', parse_gemini_export)
     except ImportError:
