@@ -27,6 +27,16 @@ command -v cloudflared >/dev/null && ok "binary: cloudflared $(cloudflared --ver
   || airgate "cloudflared absent (required on the Air)" "brew install cloudflared"
 command -v tailscale >/dev/null && ok "binary: tailscale" \
   || airgate "tailscale absent (required on the Air)" "brew install --cask tailscale, then Tailscale menu -> Install CLI"
+# Tunnel gate (hardened 2026-07-02): the symlinked app-bundle CLI emits empty
+# `tailscale status`, so CLI chatter is not a reliable liveness signal. Probe the
+# actual tailnet path instead -- nc -z to the two source coordinates on ssh/22
+# proves the tunnel is up end-to-end, which is what Group 2's pulls depend on.
+TS_MBP="100.101.100.104"; TS_IMAC="100.81.255.12"
+ts_probe() { nc -z -G 5 "$1" 22 >/dev/null 2>&1; }
+ts_probe "$TS_MBP"  && ok "tailnet tunnel: MBP $TS_MBP:22 reachable" \
+  || airgate "tailnet tunnel: MBP $TS_MBP:22 unreachable" "confirm tailscale up on both ends (tailscale status)"
+ts_probe "$TS_IMAC" && ok "tailnet tunnel: iMac $TS_IMAC:22 reachable" \
+  || airgate "tailnet tunnel: iMac $TS_IMAC:22 unreachable" "confirm tailscale up on both ends (tailscale status)"
 
 # --- python / venv ---
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
