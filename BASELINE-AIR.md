@@ -144,10 +144,24 @@ Fresh Anthropic export ("Dataset C") folded into the corpus, before Group 3.
 ### Deferred to Phase 2/4 — recorded, NOT parsed tonight
 `data_fresh/` also contains: `design_chats/` (19 entries), `projects/` (31 entries), `memories.json` (95,064 B), `users.json` (170 B). These are Phase 2/4 ingest candidates; the Anthropic conversation parser was run on `conversations.json` only.
 
-### BLOCKED — hailo Claude Code ingest + 5-note migration (original Group 2 steps 3 & 7)
-Read-only search of `~/.claude/projects/` on **both** the MBP (`ama@100.101.100.104`) and the iMac (`imac@100.81.255.12`) found **no hailo-switcher spec session**. The iMac has zero `hailo` mentions; the MBP's only hits are (1) this constellation-v3 work and (2) the Phase 0 kickoff dev session `3e096662` (last-prompt "# PHASE 0 KICKOFF…") — which merely *discusses* the migration, it is not the spec. This matches MANUAL_STEPS' prediction that the spec session "may never have been ingested." Consequently:
-- Hailo `claude-code` ingest: **no source to pull** → not done.
-- 5-note migration (destructive: deletes originals from dev thread `3363bc73`): **no valid target** → not executed. The 5 hailo notes remain intact on the dev thread in the merged sidecar. Awaiting a confirmed target (or a decision to ingest the hailo-switcher Claude Code sessions from wherever they actually live).
+### Before/After (official get_stats — A∪B vs A∪B∪C)
+
+| Metric | Before (A∪B, iMac) | After (A∪B∪C, this Air) |
+|---|---|---|
+| Conversations | 1782 | **2021** (+239) |
+| Messages | 27,095 | **31,130** (+4,035) |
+| Date range | 2023-12-13 → 2026-03-20 | 2023-12-13 → **2026-07-02** |
+| Providers | claude 1039 / claude-code 20 / chatgpt 723 | claude 1278 / claude-code 20 / chatgpt 723 |
+
+Embedding model unchanged: all-MiniLM-L6-v2 (384d).
+
+### RESOLVED — hailo-switcher 5-note migration (original Group 2 step 7)
+The first search (Group 2b) found **no** hailo-switcher spec session under `~/.claude/projects/` on either machine, because it was never a standalone Claude Code JSONL. Re-running the search against the **post-C index** surfaced it immediately — Dataset C filled the late-March gap where it lives:
+- **Target: `20ab0ef2-578b-4787-b4a4-7120cd824b58`** — "Debugging front end library on Raspberry Pi" (Claude, **2026-03-28**), a claude.ai chat where Mike acted as interface to Claude Code. Content is unambiguous: 218×"hailo", 111×"hailo-switcher", 197×"spec", 71×"tauri", with explicit `HAILO-SWITCHER-SPEC.md` / `github.com/aarzamen/hailo-switcher` references. The migrated notes themselves name this "hailo-switcher spec writing session."
+- All 5 notes (`ae94e974`, `2532cf08`, `a16b4ebf`, `fafb880d`, `ec8b95dc`) moved on the **Air's local canonical sidecar**, preserving original `note_id`/`text`/`created_at`; verified readable on the target. Dev thread `3363bc73` dropped 16 → **11 notes, 0 hailo**. Total unchanged at **45** (23 → 24 conv keys). Verbatim note text printed to the session log before deletion.
+- **Not applied to the live iMac serving instance** — a separate authorized remote write if the legacy instance needs to match.
+
+Note: the RPi5 Claude Code JSONL ingest as a general capability remains a Phase 2 item (see MANUAL_STEPS.md) — but it is **not** required for this migration, since the spec conversation came in via the claude.ai export.
 
 ### Sanitization posture
 Tonight inherits A/B's unsanitized state; Group 3's Access gate is the compensating control and the sanitizer remains a Group 5 verification item. No sanitization stage added.
