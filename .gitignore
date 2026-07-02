@@ -36,3 +36,5 @@ Thumbs.db
 # running the regression suite on each machine, never inherited via clone)
 .claude/flags/*
 !.claude/flags/.gitkeep
+data_fresh/
+staging_claude_code/

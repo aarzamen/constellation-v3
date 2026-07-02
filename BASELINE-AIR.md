@@ -106,3 +106,48 @@ Everything else PASSes (binaries incl. cloudflared, venv 3.12, all imports, bran
 1. **FileVault: ON** (default) — accepted cost: physical login after power loss before services start.
 2. **Access identity: email OTP** to Mike's Gmail (default).
 3. Public-release user account — deferred to Phase 4.
+
+## Group 2b — Dataset C union merge (2026-07-01/02)
+
+Fresh Anthropic export ("Dataset C") folded into the corpus, before Group 3.
+
+### Dataset C provenance
+- Source: `~/Downloads/data-ba821840-04bd-4972-ad33-04d8704d6c4a-1782971800-066306e0-batch-0000/`
+- Staged to `./data_fresh/` (gitignored) so the pipeline never depends on `~/Downloads`.
+- **SHA-256 `data_fresh/conversations.json`:** `7ca7f3b28607106bdbb61ceb244e56b79dc09183dee48fd497175f00f7db5820` (303,767,439 bytes / 290 MB).
+- Parse: 290 MB `json.load` peaked at **1.23 GB RSS** (well under the 8 GB ceiling; no streaming needed). Parser yields **1278 conversations / 18,557 messages** (raw export lists 1,341 convs; 63 dropped as text-empty — expected `parser.py:163` behavior). Newest timestamp **2026-07-02T05:54:21Z**.
+
+### Union rule (C authoritative for provider=claude)
+- Union = **all of C** (1278 claude, authoritative on id-collision) **+ A/B convs whose id ∉ C** (archival grace for deleted-since-export chats).
+- A (the prior iMac union, 1782) contributed **743 preserved** (chatgpt 723 + claude-code 20); all **1039** A-claude ids were superseded by C. **0** A-claude were absent from C (nothing deleted since export).
+- On-disk A convs lack `user_messages` (stripped on save); reconstructed from user-role `messages` for embedding, matching the parser's shape.
+
+### First real merge-safe re-embed (`force_reembed=True`, MERGE_SAFE earned)
+- **2021 conversations**, 14,820 user-message embeddings, 10 clusters, 9637 edges. Wall clock **149 s** (M1/8GB, all-MiniLM-L6-v2, local — **no API spend**; there is no `search_text`/synthesis stage in this codebase).
+- `conversations.json` + `embeddings.npy` mtimes moved **Mar 21 → 2026-07-01 23:24**.
+
+### get_stats (post-merge)
+```json
+{"totalConversations": 2021, "totalMessages": 31130,
+ "dateRange": ["2023-12-13", "2026-07-02"],
+ "embeddingModel": "all-MiniLM-L6-v2", "embeddingDim": 384,
+ "providers": {"claude": 1278, "claude-code": 20, "chatgpt": 723}}
+```
+
+### Assertions (all pass)
+- conversations 2021 ≥ 2000 ✓ · max date 2026-07-02 ≥ 2026-07-01 ✓ · total messages 31,130 > old 27,095 (substantially) ✓
+- note count 45 ≥ 45 ✓ · four canary note IDs (`face018c`, `f56c3e65`, `06298723`, `605d41be`) + all 5 hailo present ✓
+- **notes.json byte-identical pre/post re-embed** (SHA-256 `fcdf717e34704ec6c11d1530d99336c858d793f790945f000a180aa236f4a0ea`) ✓
+- consistency: emb rows == chunk_map == graph nodes; dim 384; no orphan note conv_ids ✓
+- test suite 166/166 ✓
+
+### Deferred to Phase 2/4 — recorded, NOT parsed tonight
+`data_fresh/` also contains: `design_chats/` (19 entries), `projects/` (31 entries), `memories.json` (95,064 B), `users.json` (170 B). These are Phase 2/4 ingest candidates; the Anthropic conversation parser was run on `conversations.json` only.
+
+### BLOCKED — hailo Claude Code ingest + 5-note migration (original Group 2 steps 3 & 7)
+Read-only search of `~/.claude/projects/` on **both** the MBP (`ama@100.101.100.104`) and the iMac (`imac@100.81.255.12`) found **no hailo-switcher spec session**. The iMac has zero `hailo` mentions; the MBP's only hits are (1) this constellation-v3 work and (2) the Phase 0 kickoff dev session `3e096662` (last-prompt "# PHASE 0 KICKOFF…") — which merely *discusses* the migration, it is not the spec. This matches MANUAL_STEPS' prediction that the spec session "may never have been ingested." Consequently:
+- Hailo `claude-code` ingest: **no source to pull** → not done.
+- 5-note migration (destructive: deletes originals from dev thread `3363bc73`): **no valid target** → not executed. The 5 hailo notes remain intact on the dev thread in the merged sidecar. Awaiting a confirmed target (or a decision to ingest the hailo-switcher Claude Code sessions from wherever they actually live).
+
+### Sanitization posture
+Tonight inherits A/B's unsanitized state; Group 3's Access gate is the compensating control and the sanitizer remains a Group 5 verification item. No sanitization stage added.
