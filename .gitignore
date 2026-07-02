@@ -31,3 +31,8 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Claude Code runtime flags (machine-local: MERGE_SAFE must be earned by
+# running the regression suite on each machine, never inherited via clone)
+.claude/flags/*
+!.claude/flags/.gitkeep

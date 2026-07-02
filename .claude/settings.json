@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command",
+          "command": "\"$CLAUDE_PROJECT_DIR/scripts/preflight.sh\" 2>&1 | tail -5",
+          "timeout": 60 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash",
+        "hooks": [ { "type": "command",
+          "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_bash.py\"",
+          "timeout": 10 } ] },
+      { "matcher": "Read|Edit|Write",
+        "hooks": [ { "type": "command",
+          "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_files.py\"",
+          "timeout": 10 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write",
+        "hooks": [ { "type": "command",
+          "command": "mkdir -p \"$CLAUDE_PROJECT_DIR/.claude/flags\" && touch \"$CLAUDE_PROJECT_DIR/.claude/flags/EDITED\"",
+          "async": true } ] },
+      { "matcher": "Bash",
+        "hooks": [ { "type": "command",
+          "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_bash.py\"",
+          "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command",
+          "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_discipline.py\"",
+          "timeout": 20 } ] }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
+      "Bash(git add:*)", "Bash(git commit:*)",
+      "Bash(git branch --show-current)", "Bash(git remote:*)",
+      "Bash(.venv/bin/*)", "Bash(python -m pytest:*)",
+      "Bash(ls:*)", "Bash(cat:*)", "Bash(lsof:*)", "Bash(which:*)",
+      "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)",
+      "Bash(stat:*)", "Bash(date:*)", "Bash(hostname:*)", "Bash(jq:*)",
+      "Bash(mkdir -p:*)", "Bash(cp:*)", "Bash(chmod:*)", "Bash(touch:*)",
+      "Bash(make:*)", "Bash(diff:*)",
+      "Bash(scripts/preflight.sh:*)", "Bash(scripts/mcp_health.sh:*)"
+    ]
+  }
+}
