@@ -109,3 +109,23 @@ this ingest.)
 
 **Nothing embedded, nothing indexed, nothing deleted.** Waiting for Mike's
 decision on scope (which sub-sources, and the Gemini grouping tolerance).
+
+---
+
+## 2026-07-04 execution outcome (D1–D7)
+
+Executed under Mike's 7-decision GO. Corpus **2477 → 2934** (+457); notes.json
+**untouched** (sha invariant held); no deletions; no changes to existing chunks.
+
+| Decision | Result |
+|---|---|
+| **D1 stash** | Kept private → `deploy/local/` (gitignored); 0 real values in tracked files. |
+| **D2 recovered ChatGPT** | Export dated **2025-08-24** (max update_time), archived to `ground-truth/openai/2025-08-24/`. **PAUSED per D6**: all 58 new-to-corpus are CONTENTLESS (ChatGPT voice/`multimodal_text` + `system_error`; <20 chars text). Ids recorded (protected class); **not embedded** (nothing to embed). chatgpt stays **1150**, not 1208. |
+| **D3 NotebookLM** | `core/notebooklm_parser.py`, provider `notebooklm`, **11** sessions, USER/MODEL roles preserved. |
+| **D4 Gemini** | `core/gemini_activity_parser.py`, provider `gemini`. **No pre-Bard records** (activity runs 2024-12-11→2026-07-03; earlier "dates" were content, not activity timestamps). Every entry has an assistant response (not user-only). 30-min sessionization → **275** conversations (D6 OK, <2000), `inferred_grouping: True`. |
+| **D5 AI Studio** | Zip already extracted at `~/Downloads/Google AI Studio` (archived to `ground-truth/google/2026-07-04/aistudio/`, 650 files/1.97 GB verified). 183 chunkedPrompt files → **172 chat / 11 non-chat**; parser `core/aistudio_parser.py`, provider `aistudio`, **171** ingested, native `model` carried (gemini-2.5-pro variants), `system_instruction` on 5. |
+| **D6 sanity** | Triggered on D2 (58→0) → paused + reported + continued. Gemini 275 well under the 2000 ceiling. |
+| **D7 verify** | 2934 convs · providers claude 1278 / claude-code 49 / chatgpt 1150 / notebooklm 11 / gemini 275 / aistudio 171 · chunks 19,650 · index 126.8 MB · notes 51 (canaries intact) · suite 194 passed / 1 skipped. |
+
+`core/indexer.py` `save_pipeline_output` now preserves optional provenance fields
+(`model`, `inferred_grouping`, `system_instruction`) so they survive rebuilds.

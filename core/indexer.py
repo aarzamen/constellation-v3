@@ -352,16 +352,25 @@ def save_pipeline_output(conversations: list, embeddings: np.ndarray,
         with open(os.path.join(data_dir, 'chunk_to_conv.json'), 'w') as f:
             json.dump(chunk_to_conv, f)
 
-    # Save conversations (without user_messages to save space)
+    # Save conversations (without user_messages to save space). Optional
+    # provenance fields are preserved when present so they survive rebuilds:
+    # 'model' (native per-conversation model identity, e.g. AI Studio),
+    # 'inferred_grouping' (sessionization was heuristic, e.g. Gemini activity log),
+    # 'system_instruction' (AI Studio system prompt).
+    _EXTRA_FIELDS = ('model', 'inferred_grouping', 'system_instruction')
     conv_data = []
     for conv in conversations:
-        conv_data.append({
+        rec = {
             'id': conv['id'],
             'name': conv['name'],
             'created_at': conv['created_at'],
             'provider': conv['provider'],
             'messages': conv['messages'],
-        })
+        }
+        for k in _EXTRA_FIELDS:
+            if conv.get(k):
+                rec[k] = conv[k]
+        conv_data.append(rec)
     with open(os.path.join(data_dir, 'conversations.json'), 'w') as f:
         json.dump(conv_data, f)
 

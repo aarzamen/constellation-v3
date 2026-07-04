@@ -41,8 +41,23 @@ def _register_builtins():
         pass
 
     try:
-        from core.gemini_parser import parse_gemini_export
-        register_parser('gemini', parse_gemini_export)
+        from core.notebooklm_parser import parse_notebooklm_export
+        register_parser('notebooklm', parse_notebooklm_export)
+    except ImportError:
+        pass
+
+    # 'gemini' = Gemini Apps activity log (MyActivity.html). The older
+    # core.gemini_parser targets the AI Studio chunkedPrompt format, which is now
+    # served by the dedicated 'aistudio' provider (carries model identity).
+    try:
+        from core.gemini_activity_parser import parse_gemini_activity
+        register_parser('gemini', parse_gemini_activity)
+    except ImportError:
+        pass
+
+    try:
+        from core.aistudio_parser import parse_aistudio_export
+        register_parser('aistudio', parse_aistudio_export)
     except ImportError:
         pass
 
