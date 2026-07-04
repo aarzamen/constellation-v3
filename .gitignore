@@ -39,3 +39,6 @@ Thumbs.db
 data_fresh/
 staging_claude_code/
 staging/
+
+# Immutable ground-truth archives (raw provider exports; large, never embedded)
+ground-truth/
