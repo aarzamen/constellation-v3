@@ -67,5 +67,11 @@ def _register_builtins():
     except ImportError:
         pass
 
+    try:
+        from core.abacus_parser import parse_abacus_export
+        register_parser('abacus', parse_abacus_export)
+    except ImportError:
+        pass
+
 
 _register_builtins()

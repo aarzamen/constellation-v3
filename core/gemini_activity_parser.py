@@ -18,6 +18,7 @@ only user messages embed today.
 import datetime
 import hashlib
 import html
+import json
 import re
 
 _TS_RE = re.compile(
@@ -67,6 +68,42 @@ def extract_entries(html_path: str) -> list:
         if not prompt:
             continue
         entries.append({'dt': dt, 'iso': dt.isoformat(), 'tz': m.group(3),
+                        'prompt': prompt, 'response': response})
+    entries.sort(key=lambda e: e['dt'])
+    return entries
+
+
+def extract_entries_json(json_path: str) -> list:
+    """Return [{dt, iso, tz, prompt, response}] from a Takeout MyActivity.json.
+
+    The newer Takeout serialization is JSON: a list of records shaped
+    ``{header, title, time, products, safeHtmlItem[]}``. `title` carries the
+    prompt (prefixed 'Prompted ' or 'Said '); `time` is ISO-8601 UTC (with 'Z');
+    `safeHtmlItem[].html` holds the model response. Timestamps are UTC here,
+    unlike the HTML parser's local wall-clock — callers must dedupe accordingly.
+    """
+    with open(json_path, encoding='utf-8', errors='replace') as f:
+        records = json.load(f)
+    entries = []
+    for r in records:
+        t = r.get('time')
+        title = r.get('title') or ''
+        if not t or not title:
+            continue
+        # UTC ISO with trailing Z (and optional milliseconds).
+        iso = t[:-1] if t.endswith('Z') else t
+        try:
+            dt = datetime.datetime.fromisoformat(iso)
+        except ValueError:
+            continue
+        prompt = _clean(re.sub(r'^(Prompted|Said)\s+', '', title))
+        if not prompt:
+            continue
+        resp_html = ' '.join(item.get('html', '')
+                             for item in (r.get('safeHtmlItem') or [])
+                             if isinstance(item, dict))
+        response = _clean(resp_html)
+        entries.append({'dt': dt, 'iso': dt.isoformat(), 'tz': 'UTC',
                         'prompt': prompt, 'response': response})
     entries.sort(key=lambda e: e['dt'])
     return entries
