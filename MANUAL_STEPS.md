@@ -155,32 +155,15 @@ token** and configure the web connector headers. The origin gate
 (`CONSTELLATION_REQUIRE_ACCESS=1`) still validates `Cf-Access-Jwt-Assertion`, so
 Access remains the edge control for the clients that can complete it.
 
-### HELD — filled deploy config awaiting publish decision (Mike)
+### RESOLVED 2026-07-04 — filled deploy config kept PRIVATE
 
-The 2026-07-02 clyde-air migration filled real Cloudflare identifiers (named-tunnel
-UUID + credentials-file path in `deploy/cloudflared-config.yml`; Access team domain
-+ AUD in `deploy/com.constellation.mcp.plist`) into the staged deploy configs. The
-agent did **not** commit them: the repo is **public** and, though they are
-validation identifiers rather than access-granting secrets (the tunnel credential
-JSON is not in the repo), the stop-and-show tripwire applies. The filled versions
-are preserved in `git stash@{0}` (working tree holds the `REPLACE_ME` template).
-Values are intentionally NOT reproduced here — this file is tracked on public main.
-
-Justification: publishing security identifiers to a public repo is irreversible
-(permanent git history) and is Mike's call.
-
-```bash
-# To PUBLISH to public main (Mike's explicit OK):
-git stash pop                                   # restores the filled deploy files
-git add deploy/cloudflared-config.yml deploy/com.constellation.mcp.plist
-git commit -m "config: clyde-air migration deploy values (2026-07-02)"
-git push origin main
-
-# To KEEP PRIVATE instead: drop the stash and gitignore the filled configs
-git stash drop                                  # discard the filled versions from the working tree
-printf 'deploy/cloudflared-config.yml\ndeploy/com.constellation.mcp.plist\n' >> .gitignore
-# (then re-fill the two files locally from your notes / the tunnel + Access app)
-```
+Mike's final answer (D1): keep private. The 2026-07-02 clyde-air migration values
+(named-tunnel UUID + credentials-file path; Access team domain + AUD) now live in
+**`deploy/local/`** (gitignored) — `deploy/local/cloudflared-config.yml` and
+`deploy/local/com.constellation.mcp.plist`. The tracked `deploy/*.yml` / `*.plist`
+stay as `REPLACE_ME` templates; `git grep` confirms no real values in tracked
+content. `deploy/install.sh` should read the filled versions from `deploy/local/`
+(or copy them over the templates at install time) — they are never committed.
 
 ---
 

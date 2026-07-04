@@ -42,3 +42,4 @@ staging/
 
 # Immutable ground-truth archives (raw provider exports; large, never embedded)
 ground-truth/
+deploy/local/
