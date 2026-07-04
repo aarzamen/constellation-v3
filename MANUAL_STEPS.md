@@ -196,3 +196,25 @@ migrated in Group 2b), but useful for future coding-session memory.
 ### data_fresh/ export extras (Dataset C)
 `data_fresh/` also holds `design_chats/` (19), `projects/` (31), `memories.json`, `users.json` —
 Phase 2/4 ingest candidates. Only `conversations.json` was parsed in Group 2b.
+
+### Google AI Studio — download the Drive folder (Mike)
+
+The canonical AI Studio chats are `.prompt` files in Mike's Drive folder
+"Google AI Studio" (created 2025-03). They are NOT on this Air: no
+Drive-for-desktop mount at `~/Library/CloudStorage/GoogleDrive-*`, and the Desktop
+"Gemini Apps" Takeout only has a 322-entry `Developers/MyActivity.html` fragment.
+To ingest them, get the `.prompt` files onto the Air:
+
+```bash
+# In a browser (Mike): drive.google.com -> folder "Google AI Studio"
+#   -> right-click -> Download (Drive zips the folder) -> save to ~/Downloads.
+# Then, on the Air:
+mkdir -p /Users/ama/dev/constellation-v3/ground-truth/google/2026-07-04/ai_studio
+unzip ~/Downloads/'Google AI Studio*.zip' \
+  -d /Users/ama/dev/constellation-v3/ground-truth/google/2026-07-04/ai_studio
+# core/gemini_parser.py already targets AI Studio's chunkedPrompt format and is
+# the likely parser (verify against the actual .prompt schema first).
+```
+
+Justification: Drive download needs Mike's browser auth; the agent cannot reach
+Drive. Full inventory + parser design in `docs/google_ingest_phase0.md`.
