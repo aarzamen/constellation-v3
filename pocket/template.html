@@ -8,7 +8,7 @@
 <title>Constellation Pocket</title>
 <style>
   :root{
-    --bg:#16161e; --panel:#1a1b26; --panel2:#1f2335; --line:#2a2f45;
+    --bg:#0b0c12; --panel:#1a1b26; --panel2:#1f2335; --line:#2a2f45;
     --text:#c0caf5; --dim:#565f89; --soft:#a9b1d6;
     --accent:#ff9e64; --accent-soft:rgba(255,158,100,.18);
   }
@@ -27,7 +27,7 @@
     position:absolute; left:0; right:0; top:0; z-index:10;
     display:flex; gap:8px; align-items:center;
     padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 10px;
-    background:linear-gradient(to bottom, rgba(22,22,30,.92), rgba(22,22,30,0));
+    background:linear-gradient(to bottom, rgba(11,12,18,.92), rgba(11,12,18,0));
     pointer-events:none;
   }
   #topbar > *{pointer-events:auto;}
@@ -268,8 +268,18 @@ function resize(){
 }
 window.addEventListener('resize', resize);
 
-/* ---------- sprite atlas: one glow sprite per cluster color ---------- */
+/* ---------- sprite atlas: glossy sphere per cluster color ---------- */
 var SPR = 64, HALF = SPR / 2;
+function hexRGB(h){
+  h = h.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function mixC(h, h2, t){
+  var a = hexRGB(h), b = hexRGB(h2);
+  return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * t) + ',' +
+                  Math.round(a[1] + (b[1] - a[1]) * t) + ',' +
+                  Math.round(a[2] + (b[2] - a[2]) * t) + ')';
+}
 var clusterIds = (B.clusters || []).map(function(c){ return c.id; });
 var atlas = document.createElement('canvas');
 atlas.width = SPR * Math.max(clusterIds.length, 1); atlas.height = SPR;
@@ -277,14 +287,38 @@ var atx = atlas.getContext('2d');
 var sprCol = {};   /* cluster id -> atlas column */
 clusterIds.forEach(function(cid, col){
   sprCol[cid] = col;
-  var g = atx.createRadialGradient(col * SPR + HALF, HALF, 0, col * SPR + HALF, HALF, HALF);
   var color = CLUSTERS[cid].color || '#c0caf5';
+  var cx0 = col * SPR + HALF, cy0 = HALF, R = HALF - 3;
+  var g = atx.createRadialGradient(cx0 - R * 0.35, cy0 - R * 0.4, R * 0.08, cx0, cy0, R);
   g.addColorStop(0, '#ffffff');
-  g.addColorStop(0.25, color);
-  g.addColorStop(1, 'rgba(0,0,0,0)');
+  g.addColorStop(0.16, mixC(color, '#ffffff', 0.55));
+  g.addColorStop(0.52, color);
+  g.addColorStop(0.92, mixC(color, '#000000', 0.42));
+  g.addColorStop(1, mixC(color, '#000000', 0.55));
   atx.fillStyle = g;
-  atx.fillRect(col * SPR, 0, SPR, SPR);
+  atx.beginPath();
+  atx.arc(cx0, cy0, R, 0, Math.PI * 2);
+  atx.fill();
 });
+
+/* ---------- edge field: every edge pre-rendered per layout, blitted ---------- */
+var EM_SIZE = 1800, EM_WORLD = 1500;
+var skyEdgeMap = null, timeEdgeMap = null;
+function buildEdgeMap(LX, LY){
+  var c = document.createElement('canvas');
+  c.width = EM_SIZE; c.height = EM_SIZE;
+  var g2 = c.getContext('2d');
+  g2.strokeStyle = 'rgba(150,160,195,0.07)';
+  g2.lineWidth = 1;
+  var k = EM_SIZE / EM_WORLD, off = EM_SIZE / 2;
+  g2.beginPath();
+  for (var i = 0; i < E.length; i++){
+    g2.moveTo(LX[E[i][0]] * k + off, LY[E[i][0]] * k + off);
+    g2.lineTo(LX[E[i][1]] * k + off, LY[E[i][1]] * k + off);
+  }
+  g2.stroke();
+  return c;
+}
 
 /* ---------- camera ---------- */
 var cam = { x: 0, y: 0, s: 0.5 };
@@ -316,19 +350,37 @@ function dirty(){
   requestAnimationFrame(frame);
 }
 function nodeR(i){
-  var r = 1.6 + Math.log2(1 + (N[i].m || 1)) * 0.75;
-  if (r > 5.5) r = 5.5;
+  var r = 1.4 + Math.log2(1 + (N[i].m || 1)) * 1.05;
+  if (r > 8) r = 8;
   return r * (0.65 + 0.35 * Math.min(cam.s, 2));
 }
 function frame(){
   needsFrame = false;
-  ctx.fillStyle = '#16161e';
+  ctx.fillStyle = '#0b0c12';
   ctx.fillRect(0, 0, W, H);
 
   var i, X, Y, m = 40;
   for (i = 0; i < NN; i++){ SXA[i] = sx(i); SYA[i] = sy(i); }
 
-  /* edges — LOD: only when zoomed in, both ends near viewport, capped */
+  /* gossamer edge field: whole web blitted, fading as vector edges take over */
+  var emA = Math.max(0, Math.min(1, (1.85 - cam.s) / 0.8));
+  if (E.length && emA > 0.02){
+    if (!skyEdgeMap) skyEdgeMap = buildEdgeMap(L_SKY.X, L_SKY.Y);
+    var dw = EM_WORLD * cam.s;
+    var dx0 = (-EM_WORLD / 2 - cam.x) * cam.s + W / 2;
+    var dy0 = (-EM_WORLD / 2 - cam.y) * cam.s + H / 2;
+    if (morphT < 0.999){
+      ctx.globalAlpha = emA * (1 - morphT);
+      ctx.drawImage(skyEdgeMap, dx0, dy0, dw, dw);
+    }
+    if (morphT > 0.001 && timeEdgeMap){
+      ctx.globalAlpha = emA * morphT;
+      ctx.drawImage(timeEdgeMap, dx0, dy0, dw, dw);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* edges — vector pass when zoomed in, both ends near viewport, capped */
   if (cam.s > 1.05 && E.length){
     ctx.strokeStyle = 'rgba(86,95,137,0.20)';
     ctx.lineWidth = 0.6;
@@ -380,10 +432,10 @@ function frame(){
     ctx.arc(SXA[sel], SYA[sel], nodeR(sel) + 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = '#ff9e64';
-    ctx.font = '600 12px -apple-system, sans-serif';
+    ctx.font = '700 12px ui-monospace, "SF Mono", Menlo, monospace';
     ctx.fillText(N[sel].n, SXA[sel] + nodeR(sel) + 7, SYA[sel] + 4);
-    ctx.fillStyle = '#a9b1d6';
-    ctx.font = '11px -apple-system, sans-serif';
+    ctx.fillStyle = '#8a92c0';
+    ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
     for (i = 0; i < Math.min(nb.length, 8); i++){
       var j = nb[i];
       ctx.fillText(N[j].n.slice(0, 34), SXA[j] + nodeR(j) + 6, SYA[j] + 4);
@@ -399,8 +451,7 @@ function frame(){
       cand.push(i);
     }
     cand.sort(function(a, b){ return (N[b].m || 0) - (N[a].m || 0); });
-    ctx.fillStyle = 'rgba(169,177,214,0.85)';
-    ctx.font = '11px -apple-system, sans-serif';
+    ctx.font = '600 10px ui-monospace, "SF Mono", Menlo, monospace';
     var placed = [];
     if (sel >= 0){
       placed.push([SXA[sel], SYA[sel] - 10, 220, 40]);
@@ -412,7 +463,8 @@ function frame(){
     var shown = 0;
     for (i = 0; i < cand.length && shown < 34; i++){
       var c2 = cand[i];
-      var name = N[c2].n.slice(0, 30);
+      var name = ((N[c2].t && N[c2].t[0]) || N[c2].n.split(' ')[0] || '').toUpperCase().slice(0, 16);
+      if (!name) continue;
       var lx = SXA[c2] + nodeR(c2) + 6, ly = SYA[c2] + 4;
       var lw = ctx.measureText(name).width, clash = false, r2, j2;
       for (j2 = 0; j2 < placed.length; j2++){
@@ -421,6 +473,7 @@ function frame(){
             ly - 9 < r2[1] + r2[3] && ly + 3 > r2[1]){ clash = true; break; }
       }
       if (clash) continue;
+      ctx.fillStyle = (CLUSTERS[N[c2].c] || {}).color || '#a9b1d6';
       ctx.fillText(name, lx, ly);
       placed.push([lx, ly - 9, lw, 12]);
       shown++;
@@ -453,6 +506,7 @@ function stepFly(){
   requestAnimationFrame(stepFly);
 }
 function setLayout(sim){
+  if (sim && !timeEdgeMap) timeEdgeMap = buildEdgeMap(L_TIME.X, L_TIME.Y);
   var target = sim ? 1 : 0;
   document.getElementById('layEmbed').classList.toggle('on', !sim);
   document.getElementById('laySim').classList.toggle('on', sim);
