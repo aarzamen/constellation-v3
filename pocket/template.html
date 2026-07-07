@@ -134,10 +134,10 @@
 <aside id="drawer" hidden>
   <h1>Constellation <span class="dot">Pocket</span></h1>
   <section>
-    <h2>Layout</h2>
+    <h2>View</h2>
     <div class="seg">
-      <button id="layEmbed" class="on">Embedding</button>
-      <button id="laySim">Simulated</button>
+      <button id="layEmbed" class="on">Sky</button>
+      <button id="laySim">Timeline</button>
     </div>
   </section>
   <section>
@@ -191,39 +191,68 @@ var adj = new Array(NN);
 for (var i0 = 0; i0 < NN; i0++) adj[i0] = [];
 E.forEach(function(e){ adj[e[0]].push(e[1]); adj[e[1]].push(e[0]); });
 
-/* ---------- layouts: pick 2 highest-variance axes, normalize ---------- */
+/* ---------- layouts ----------
+   Sky      = serialized force-simulation state (x,y,z): the semantic
+              constellation as last converged in the live app.
+   Timeline = temporal-helix coords (tx,ty,tz). tx encodes time and the
+              raw values pile up hard at the recent end, so X uses DATE
+              RANK (sequence) for readability; Y is the helix ty. */
+function pctl(sorted, q){
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
 function pickAxes(keys){
   var st = keys.map(function(k){
-    var m = 0, i; for (i = 0; i < NN; i++) m += N[i][k]; m /= NN;
-    var v = 0, d; for (i = 0; i < NN; i++){ d = N[i][k] - m; v += d * d; }
-    return { k: k, v: v };
+    var vs = new Array(NN), i;
+    for (i = 0; i < NN; i++) vs[i] = N[i][k] || 0;
+    vs.sort(function(a, b){ return a - b; });
+    return { k: k, v: pctl(vs, 0.90) - pctl(vs, 0.10) };  /* robust spread */
   });
   st.sort(function(a, b){ return b.v - a.v; });
   return [st[0].k, st[1].k];
 }
-function buildLayout(keys){
-  var ax = pickAxes(keys), kx = ax[0], ky = ax[1];
-  var X = new Float32Array(NN), Y = new Float32Array(NN);
-  var minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, i, x, y;
-  for (i = 0; i < NN; i++){
-    x = N[i][kx]; y = N[i][ky];
-    if (x < minx) minx = x; if (x > maxx) maxx = x;
-    if (y < miny) miny = y; if (y > maxy) maxy = y;
-  }
-  var s = 1000 / Math.max(maxx - minx, maxy - miny, 1e-6);
-  var cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
-  for (i = 0; i < NN; i++){
-    X[i] = (N[i][kx] - cx) * s;
-    Y[i] = (N[i][ky] - cy) * s;
-  }
-  return { X: X, Y: Y, axes: kx + '/' + ky };
+function normalize(xs, ys, perAxis){
+  var i, X = new Float32Array(NN), Y = new Float32Array(NN);
+  var sxv = xs.slice().sort(function(a, b){ return a - b; });
+  var syv = ys.slice().sort(function(a, b){ return a - b; });
+  var cx = pctl(sxv, 0.5), cy = pctl(syv, 0.5);
+  var rx = Math.max(pctl(sxv, 0.98) - pctl(sxv, 0.02), 1e-6);
+  var ry = Math.max(pctl(syv, 0.98) - pctl(syv, 0.02), 1e-6);
+  var sX, sY;
+  if (perAxis){ sX = 1000 / rx; sY = 560 / ry; }
+  else { sX = sY = 1000 / Math.max(rx, ry); }
+  for (i = 0; i < NN; i++){ X[i] = (xs[i] - cx) * sX; Y[i] = (ys[i] - cy) * sY; }
+  return { X: X, Y: Y };
 }
-var L_EMBED = buildLayout(['tx', 'ty', 'tz']);
-var L_SIM   = buildLayout(['x', 'y', 'z']);
-var morphT = 0;                       /* 0 = embedding, 1 = simulated */
+function buildSky(){
+  var ax = pickAxes(['x', 'y', 'z']), kx = ax[0], ky = ax[1];
+  var xs = new Array(NN), ys = new Array(NN), i;
+  for (i = 0; i < NN; i++){ xs[i] = N[i][kx] || 0; ys[i] = N[i][ky] || 0; }
+  var L = normalize(xs, ys, false);
+  L.axes = 'sky:' + kx + '/' + ky;
+  return L;
+}
+function buildTimeline(){
+  var order = new Array(NN), i;
+  for (i = 0; i < NN; i++) order[i] = i;
+  order.sort(function(a, b){
+    var da = N[a].d || '', db = N[b].d || '';
+    if (da < db) return -1;
+    if (da > db) return 1;
+    var t = (N[a].tx || 0) - (N[b].tx || 0);
+    return t !== 0 ? t : a - b;
+  });
+  var xs = new Array(NN), ys = new Array(NN);
+  for (i = 0; i < NN; i++){ xs[order[i]] = i; ys[order[i]] = N[order[i]].ty || 0; }
+  var L = normalize(xs, ys, true);
+  L.axes = 'timeline:date-rank/ty';
+  return L;
+}
+var L_SKY = buildSky();
+var L_TIME = buildTimeline();
+var morphT = 0;                       /* 0 = sky, 1 = timeline */
 var morphAnim = null;
-function px(i){ return L_EMBED.X[i] + (L_SIM.X[i] - L_EMBED.X[i]) * morphT; }
-function py(i){ return L_EMBED.Y[i] + (L_SIM.Y[i] - L_EMBED.Y[i]) * morphT; }
+function px(i){ return L_SKY.X[i] + (L_TIME.X[i] - L_SKY.X[i]) * morphT; }
+function py(i){ return L_SKY.Y[i] + (L_TIME.Y[i] - L_SKY.Y[i]) * morphT; }
 
 /* ---------- canvas ---------- */
 var cv = document.getElementById('sky');
@@ -300,7 +329,7 @@ function frame(){
   for (i = 0; i < NN; i++){ SXA[i] = sx(i); SYA[i] = sy(i); }
 
   /* edges — LOD: only when zoomed in, both ends near viewport, capped */
-  if (cam.s > 0.85 && E.length){
+  if (cam.s > 1.05 && E.length){
     ctx.strokeStyle = 'rgba(86,95,137,0.20)';
     ctx.lineWidth = 0.6;
     ctx.beginPath();
@@ -646,7 +675,7 @@ document.getElementById('resetBtn').addEventListener('click', function(){
     dr[0] + ' → ' + dr[1] + '<br>' +
     'built ' + (B.generated_at || '—') + '<br>' +
     'graph ' + ((B.source && B.source.graph_sha256) || '').slice(0, 8) +
-    ' · layout ' + L_EMBED.axes + ' | ' + L_SIM.axes;
+    ' · ' + L_SKY.axes + ' · ' + L_TIME.axes;
 })();
 
 /* ---------- pointer input: pan / pinch / tap ---------- */
