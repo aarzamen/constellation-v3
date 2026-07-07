@@ -1,0 +1,49 @@
+#!/bin/bash
+# constellation-tunnel-launch — preflight-gated launcher for the
+# `constellation-air` cloudflared tunnel. Installed root-owned in
+# /usr/local/bin so nothing running as ama (git hooks, deploy scripts,
+# stray sed) can alter it.
+#
+# Fails LOUD and SLOW: on a bad config it logs one clear line, sleeps
+# 300s, exits 78 (EX_CONFIG). launchd KeepAlive retries ~every 5 min —
+# self-healing once the config is fixed, no 8-second crash hammer.
+# `--check` mode validates and exits immediately (used by installer).
+
+set -u
+CONFIG="/Users/ama/.cloudflared/config.yml"
+CF_BIN="/opt/homebrew/bin/cloudflared"
+PLOG="/Users/ama/Library/Logs/constellation/tunnel.preflight.log"
+CHECK="${1:-}"
+
+mkdir -p "$(dirname "$PLOG")" 2>/dev/null
+
+fail() {
+  echo "$(date -u +%FT%TZ) PREFLIGHT FAIL: $*" | tee -a "$PLOG" >&2
+  [ "$CHECK" = "--check" ] || sleep 300
+  exit 78
+}
+
+[ -x "$CF_BIN" ] || fail "cloudflared binary missing at $CF_BIN"
+[ -r "$CONFIG" ] || fail "config missing/unreadable: $CONFIG"
+
+grep -qE 'REPLACE_ME|CHANGEME|PLACEHOLDER|FIXME|XXXX' "$CONFIG" \
+  && fail "placeholder token found in $CONFIG — refusing to launch"
+
+TUNNEL_ID="$(awk '$1=="tunnel:"{print $2; exit}' "$CONFIG")"
+echo "$TUNNEL_ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
+  || fail "tunnel id malformed: '$TUNNEL_ID'"
+
+CRED="$(awk '$1=="credentials-file:"{print $2; exit}' "$CONFIG")"
+[ -r "$CRED" ] || fail "credentials file missing/unreadable: $CRED"
+grep -q "$TUNNEL_ID" "$CRED" || fail "credentials file does not match tunnel id $TUNNEL_ID"
+
+"$CF_BIN" tunnel --config "$CONFIG" ingress validate >/dev/null 2>&1 \
+  || fail "cloudflared ingress validation rejected $CONFIG"
+
+if [ "$CHECK" = "--check" ]; then
+  echo "preflight --check OK — tunnel $TUNNEL_ID, creds + ingress valid"
+  exit 0
+fi
+
+echo "$(date -u +%FT%TZ) preflight OK — launching tunnel $TUNNEL_ID" >> "$PLOG"
+exec "$CF_BIN" tunnel --no-autoupdate --config "$CONFIG" run constellation-air

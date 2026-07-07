@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  cloudflared named tunnel `constellation-air` — system LaunchDaemon.
+  HARDENED 2026-07-06: launches via /usr/local/bin/constellation-tunnel-launch,
+  a root-owned preflight gate that validates /Users/ama/.cloudflared/config.yml
+  (placeholder scan, UUID format, creds match, ingress validate) before
+  exec'ing cloudflared. Live config and daemon logs now live OUTSIDE the git
+  working tree. Repo file deploy/cloudflared-config.yml is a template only.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.constellation.tunnel</string>
+
+    <key>UserName</key>
+    <string>ama</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/constellation-tunnel-launch</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TUNNEL_ORIGIN_CERT</key>
+        <string>/Users/ama/.cloudflared/cert.pem</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ama/Library/Logs/constellation/tunnel.daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ama/Library/Logs/constellation/tunnel.daemon.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
