@@ -390,7 +390,7 @@ function frame(){
     }
   }
 
-  /* ambient labels when zoomed in */
+  /* ambient labels when zoomed in — greedy collision culling */
   if (cam.s > 2.2){
     var cand = [];
     for (i = 0; i < NN; i++){
@@ -401,9 +401,29 @@ function frame(){
     cand.sort(function(a, b){ return (N[b].m || 0) - (N[a].m || 0); });
     ctx.fillStyle = 'rgba(169,177,214,0.85)';
     ctx.font = '11px -apple-system, sans-serif';
-    for (i = 0; i < Math.min(cand.length, 34); i++){
+    var placed = [];
+    if (sel >= 0){
+      placed.push([SXA[sel], SYA[sel] - 10, 220, 40]);
+      var nbs = adj[sel];
+      for (i = 0; i < Math.min(nbs.length, 8); i++){
+        placed.push([SXA[nbs[i]], SYA[nbs[i]] - 8, 180, 16]);
+      }
+    }
+    var shown = 0;
+    for (i = 0; i < cand.length && shown < 34; i++){
       var c2 = cand[i];
-      ctx.fillText(N[c2].n.slice(0, 30), SXA[c2] + nodeR(c2) + 6, SYA[c2] + 4);
+      var name = N[c2].n.slice(0, 30);
+      var lx = SXA[c2] + nodeR(c2) + 6, ly = SYA[c2] + 4;
+      var lw = ctx.measureText(name).width, clash = false, r2, j2;
+      for (j2 = 0; j2 < placed.length; j2++){
+        r2 = placed[j2];
+        if (lx < r2[0] + r2[2] && lx + lw > r2[0] &&
+            ly - 9 < r2[1] + r2[3] && ly + 3 > r2[1]){ clash = true; break; }
+      }
+      if (clash) continue;
+      ctx.fillText(name, lx, ly);
+      placed.push([lx, ly - 9, lw, 12]);
+      shown++;
     }
   }
 }
