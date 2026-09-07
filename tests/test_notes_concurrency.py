@@ -45,6 +45,7 @@ def _conv(cid, text, provider='claude'):
 def _graph(cs, label='current'):
     return {'nodes': [{'id': c['id'], 'cluster': 0, 'clusterLabel': label}
                       for c in cs],
+            'edges': [],
             'clusters': [{'id': 0, 'label': label}],
             'stats': {'clusterCount': 1, 'edgeCount': 0}}
 
@@ -384,10 +385,17 @@ class PipelineNotesTests(unittest.TestCase):
         conv = _conv('a', 'hello world')
         legacy = dict(conv)
         legacy['notes'] = [{'text': 'legacy keepsake'}]
-        self._seed([legacy])
+        # Seed a genuine flat legacy layout: conversations + embeddings on
+        # the data-dir root with NO generation pointer. (Writing a flat file
+        # under an existing pointer would just be ignored dead data.)
         conv_path = os.path.join(self.data_dir, 'conversations.json')
         with open(conv_path, 'w') as fh:
             json.dump([legacy], fh)
+        np.save(os.path.join(self.data_dir, 'embeddings.npy'),
+                np.array([[1.0, 0.0]]))
+        self.assertFalse(
+            os.path.exists(os.path.join(self.data_dir, 'current.json')),
+            'precondition: no generation pointer for the legacy layout')
         with open(conv_path) as fh:
             on_disk = json.load(fh)
         self.assertTrue(
@@ -424,9 +432,12 @@ class PipelineNotesTests(unittest.TestCase):
         delete_result = []
 
         def save_then_user_deletes(*args, **kwargs):
-            real_output(*args, **kwargs)
+            # Preserve the publisher's return contract: hand the committed
+            # snapshot back to the pipeline, then delete after publish.
+            snapshot = real_output(*args, **kwargs)
             delete_result.append(
                 notes.delete_note(self.data_dir, 'a', note['note_id']))
+            return snapshot
 
         self._run_pipeline(convs, force=True,
                            save_hook=save_then_user_deletes)

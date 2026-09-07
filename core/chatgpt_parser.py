@@ -173,7 +173,7 @@ def parse_chatgpt_export(filepath: str, max_conversations: int = None) -> list:
               file=sys.stderr)
 
     conversations = []
-    seen_ids = set()
+    seen_histories = {}
     skipped = 0
 
     for fp in files:
@@ -187,10 +187,6 @@ def parse_chatgpt_export(filepath: str, max_conversations: int = None) -> list:
             conv_id = conv.get('id', '')
             if not conv_id:
                 skipped += 1
-                continue
-
-            # Guard against the same conversation appearing in multiple shards.
-            if conv_id in seen_ids:
                 continue
 
             title = normalize_title(conv.get('title'))
@@ -207,7 +203,20 @@ def parse_chatgpt_export(filepath: str, max_conversations: int = None) -> list:
                 skipped += 1
                 continue
 
-            seen_ids.add(conv_id)
+            # Duplicate-id validation on the NORMALIZED history: the same
+            # conversation may appear in multiple shards with unstable
+            # message node ids/create_times — equal role/text histories
+            # coalesce, conflicting histories are a data-integrity error.
+            history = tuple((m['role'], m['text']) for m in messages)
+            prior = seen_histories.get(conv_id)
+            if prior is not None:
+                if prior != history:
+                    raise ValueError(
+                        f"Conflicting duplicate conversation id {conv_id!r}: "
+                        f"same id with different role/text history")
+                continue
+            seen_histories[conv_id] = history
+
             user_messages = [m['text'] for m in messages if m['role'] == 'user']
 
             conversations.append({

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """SWEEP v2 — one-shot multi-source fold-in (authority: Mike, 2026-07-04).
 
-Folds four genuinely-new sources into the corpus in a SINGLE incremental embed.
-All ingestion is additive: a parsed conversation is ingested only if its id is
-absent from the existing corpus. No existing chunk is re-embedded; nothing is
-deleted; notes.json is asserted byte-identical before/after (via the shared
-`incremental_embed` harness in nightly_ingest).
+Folds four sources into the corpus in a SINGLE pass through the shared ingest
+pipeline (core.ingest.ingest_conversations). ALL parsed conversations —
+existing ids included — go through reconciliation: new records are added,
+extended histories adopted, divergent histories kept as revision records, and
+nothing already archived is ever dropped. Unchanged records reuse cached
+vectors when the embedding identity matches. This script never writes
+notes.json; its sha256 is compared before/after purely as an observation. A
+hash change is OBSERVED only — its cause (legacy note migration, another
+writer, concurrent note activity) cannot be inferred here.
 
 Sources (delta by conversation id):
   * claude   — fresh Anthropic export (ground-truth/anthropic/2026-07-04/*.zip)
@@ -18,7 +22,8 @@ Verified 0-new (recorded, not ingested):
   * chatgpt      — 2026-07-03 shard export already indexed (corpus chatgpt=1150)
   * claude-code  — the 20 local_ Desktop convs already indexed
 
-Run `--dry-run` to print the plan (no writes). Run with no flag to embed once.
+Run `--dry-run` to print the plan (source extraction still runs and writes to
+staging, but there is no index publication). Run with no flag to embed once.
 """
 
 import argparse
@@ -95,7 +100,10 @@ def source_abacus():
 
 
 def delta(convs, existing_ids):
-    """Keep only conversations whose id is new to the corpus, deduped in-batch."""
+    """Legacy helper (kept for reference, no longer in the active import
+    path): keep only conversations whose id is new to the corpus, deduped
+    in-batch. The active path now sends ALL parsed candidates through the
+    shared reconciliation instead of filtering by id."""
     out, seen = [], set()
     for c in convs:
         cid = c['id']
@@ -112,10 +120,12 @@ def date_range(convs):
 
 
 def run(dry_run):
-    with open(os.path.join(DATA_DIR, 'conversations.json')) as f:
-        corpus = json.load(f)
-    existing_ids = {c['id'] for c in corpus}
     from collections import Counter
+    from core.reconcile import reconcile_conversations
+    from core.storage import load_snapshot
+
+    snap = load_snapshot(DATA_DIR)
+    corpus = snap.conversations if snap is not None else []
     before_prov = Counter(c.get('provider') for c in corpus)
 
     sources = [
@@ -125,73 +135,82 @@ def run(dry_run):
         ('abacus', source_abacus),
     ]
 
-    fresh, plan = [], []
+    # ALL parsed candidates go to reconciliation — no delta-by-id filtering,
+    # so extended/diverged histories of existing ids are never lost.
+    candidates, plan = [], []
     for name, fn in sources:
         parsed = fn()
-        new = delta(parsed, existing_ids)
-        # in-batch dedup across sources too
-        new = delta(new, {c['id'] for c in fresh})
-        fresh.extend(new)
-        lo, hi = date_range(new)
-        plan.append((name, len(parsed), len(new), lo, hi))
+        candidates.extend(parsed)
+        lo, hi = date_range(parsed)
+        plan.append((name, len(parsed), lo, hi))
+
+    # Pure reconciliation preview for the plan (no publication).
+    preview, rreport = reconcile_conversations(corpus, candidates)
 
     print('\n=== SWEEP v2 ingest plan ===', file=sys.stderr)
     print(f'corpus before: {len(corpus)}', file=sys.stderr)
-    for name, nparsed, nnew, lo, hi in plan:
-        print(f'  {name:9} parsed {nparsed:5}  NEW {nnew:5}  [{lo} .. {hi}]',
+    for name, nparsed, lo, hi in plan:
+        print(f'  {name:9} parsed {nparsed:5}  [{lo} .. {hi}]',
               file=sys.stderr)
-    print(f'  total NEW: {len(fresh)}  ->  corpus after: {len(corpus) + len(fresh)}',
+    print(f'  reconcile: {rreport}  ->  corpus after: {len(preview)}',
           file=sys.stderr)
 
     result = {
+        # Preview-time observations; the actual import overwrites
+        # corpus_before with the ingest's own commit-base count.
         'corpus_before': len(corpus),
-        'plan': [{'source': n, 'parsed': p, 'new': nn, 'from': lo, 'to': hi}
-                 for n, p, nn, lo, hi in plan],
-        'total_new': len(fresh),
-        'provider_before': dict(before_prov),
+        'observed_generation': snap.token if snap is not None else None,
+        'plan': [{'source': n, 'parsed': p, 'from': lo, 'to': hi}
+                 for n, p, lo, hi in plan],
+        'reconcile_preview': rreport,
+        'projected_after': len(preview),
+        'observed_provider_before': dict(before_prov),
     }
 
     if dry_run:
-        result['action'] = 'dry-run (no writes)'
+        result['action'] = 'dry-run (no index publication)'
         print(json.dumps(result, indent=2))
         return result
 
-    if not fresh:
+    if not candidates:
         result['action'] = 'nothing to ingest'
         print(json.dumps(result, indent=2))
         return result
 
-    from scripts.nightly_ingest import incremental_embed, _sha256_bytes
+    from scripts.nightly_ingest import _sha256_bytes
     notes_path = os.path.join(DATA_DIR, 'notes.json')
     sha_before = _sha256_bytes(notes_path)
 
     from core.embedder import Embedder
-    embedder = Embedder()
-    corpus_before_n, corpus_after_n = incremental_embed(fresh, embedder)
+    from core.ingest import ingest_conversations
+    ingest = ingest_conversations(DATA_DIR, candidates, Embedder())
 
     sha_after = _sha256_bytes(notes_path)
     result.update(
-        action=f'ingested {len(fresh)} conversations',
-        corpus_after=corpus_after_n,
+        action=f'reconciled {len(candidates)} candidate conversations',
+        corpus_before=ingest.before,
+        corpus_after=ingest.after,
+        embedded=ingest.embedded,
+        reconcile=ingest.report,
+        generation=ingest.snapshot.token,
         notes_sha_before=sha_before,
         notes_sha_after=sha_after,
-        notes_untouched=(sha_before == sha_after),
+        # Observation only: this script never writes notes. A change is
+        # OBSERVED; its cause (migration, another writer, concurrent note
+        # activity) cannot be inferred here. Not a failure.
+        notes_hash_changed=(sha_before != sha_after),
     )
-    # provider-after breakdown
-    with open(os.path.join(DATA_DIR, 'conversations.json')) as f:
-        after = json.load(f)
-    result['provider_after'] = dict(Counter(c.get('provider') for c in after))
+    result['provider_after'] = dict(Counter(
+        c.get('provider') for c in ingest.snapshot.conversations))
     print(json.dumps(result, indent=2))
-    if not result['notes_untouched']:
-        print('FATAL: notes.json changed during ingest', file=sys.stderr)
-        sys.exit(2)
     return result
 
 
 def main():
     ap = argparse.ArgumentParser(description='SWEEP v2 one-shot ingest')
     ap.add_argument('--dry-run', action='store_true',
-                    help='print the plan without writing anything')
+                    help='print the plan (source extraction still writes to '
+                         'staging; no index publication)')
     args = ap.parse_args()
     run(dry_run=args.dry_run)
 

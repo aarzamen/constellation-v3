@@ -3,9 +3,6 @@
 Constellation — core/indexer.py
 """
 
-import json
-import os
-import re
 import sys
 from collections import Counter
 from datetime import datetime
@@ -125,8 +122,9 @@ def embed_conversations(conversations: list, embedder,
 def build_clusters(embeddings: np.ndarray, k_override: int = None) -> dict:
     """Cluster conversation embeddings."""
     if k_override:
-        labels, centroids = kmeans(embeddings, k_override)
-        k = k_override
+        # Never request more clusters than there are points.
+        k = max(1, min(int(k_override), len(embeddings)))
+        labels, centroids = kmeans(embeddings, k)
     else:
         k, labels, centroids = auto_cluster(embeddings, k_min=5, k_max=20)
         print(f"Auto-detected {k} clusters (silhouette score sweep)", file=sys.stderr)
@@ -172,6 +170,8 @@ def generate_cluster_label(conversations: list, labels: np.ndarray,
 def build_edges(embeddings: np.ndarray, conversations: list,
                 percentile: float = 95.0, max_edges_per_node: int = 15) -> list:
     """Build edge list from embedding similarity."""
+    if len(conversations) < 2:
+        return []
     sim_matrix = cosine_similarity_matrix(embeddings)
     np.fill_diagonal(sim_matrix, 0)
 
@@ -225,13 +225,21 @@ def build_graph_data(conversations: list, embeddings: np.ndarray,
     else:
         t_norm = np.zeros_like(ts_array)
 
-    # For temporal helix: x = time, y/z = PCA components 1-2
+    # For temporal helix: x = time, y/z = PCA components 1-2. Tiny corpora
+    # yield fewer than 2 components; pad with zeros so every node still has
+    # finite (tx, ty, tz) without changing the normal geometry.
     centered = embeddings - embeddings.mean(axis=0)
-    U, S, Vt = np.linalg.svd(centered, full_matrices=False)
-    pca_2d = centered @ Vt[:2].T
-    max_val = np.abs(pca_2d).max()
-    if max_val > 0:
-        pca_2d *= 80 / max_val
+    if np.allclose(centered, 0):
+        pca_2d = np.zeros((len(conversations), 2))
+    else:
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        pca_2d = centered @ Vt[:2].T
+        if pca_2d.shape[1] < 2:
+            pca_2d = np.column_stack(
+                [pca_2d, np.zeros((len(pca_2d), 2 - pca_2d.shape[1]))])
+        max_val = np.abs(pca_2d).max()
+        if max_val > 0:
+            pca_2d *= 80 / max_val
     t_positions = np.column_stack([t_norm * 200 - 100, pca_2d])
 
     # Generate cluster labels and colors
@@ -340,50 +348,59 @@ def build_timeline(conversations: list, labels: np.ndarray) -> list:
 
 def save_pipeline_output(conversations: list, embeddings: np.ndarray,
                          chunk_embeddings: np.ndarray, chunk_to_conv: list,
-                         graph_data: dict, data_dir: str):
-    """Save all pipeline outputs to disk."""
-    os.makedirs(data_dir, exist_ok=True)
+                         graph_data: dict, data_dir: str, *,
+                         expected_generation=None, embedding_identity=None):
+    """Publish all pipeline outputs as an immutable generation.
 
-    # Save embeddings as numpy binary
-    np.save(os.path.join(data_dir, 'embeddings.npy'), embeddings)
-    
-    if chunk_embeddings is not None and chunk_to_conv is not None:
-        np.save(os.path.join(data_dir, 'chunk_embeddings.npy'), chunk_embeddings)
-        with open(os.path.join(data_dir, 'chunk_to_conv.json'), 'w') as f:
-            json.dump(chunk_to_conv, f)
+    Retains the historical six positional arguments; no flat artifacts are
+    written any more. ``expected_generation`` is the snapshot token the
+    build started from — None means this must be the FIRST index, so
+    publication over an existing index raises StaleGenerationError instead
+    of replacing it. Returns the committed core.storage.IndexSnapshot.
 
-    # Save conversations (without user_messages to save space). Optional
-    # provenance fields are preserved when present so they survive rebuilds:
-    # 'model' (native per-conversation model identity, e.g. AI Studio),
-    # 'inferred_grouping' (sessionization was heuristic, e.g. Gemini activity log),
-    # 'system_instruction' (AI Studio system prompt).
-    _EXTRA_FIELDS = ('model', 'inferred_grouping', 'system_instruction')
-    conv_data = []
-    for conv in conversations:
-        rec = {
-            'id': conv['id'],
-            'name': conv['name'],
-            'created_at': conv['created_at'],
-            'provider': conv['provider'],
-            'messages': conv['messages'],
-        }
-        for k in _EXTRA_FIELDS:
-            if conv.get(k):
-                rec[k] = conv[k]
-        conv_data.append(rec)
-    with open(os.path.join(data_dir, 'conversations.json'), 'w') as f:
-        json.dump(conv_data, f)
+    Every conversation field is preserved except derived ``user_messages``
+    and legacy embedded ``notes`` (migrated separately), so revision and
+    provenance metadata survive rebuilds.
+    """
+    import os
 
-    # Save clusters
-    clusters_data = {
-        'k': graph_data['stats']['clusterCount'],
-        'clusters': graph_data['clusters'],
-    }
-    with open(os.path.join(data_dir, 'clusters.json'), 'w') as f:
-        json.dump(clusters_data, f, indent=2)
+    from core import notes as notes_store
+    from core.storage import publish_generation
 
-    # Save graph data
-    with open(os.path.join(data_dir, 'graph_data.json'), 'w') as f:
-        json.dump(graph_data, f)
+    # First publication over a flat legacy archive: the new pointer makes
+    # the flat conversations.json permanently ineligible for note migration,
+    # so migrate embedded notes to the sidecar and back them up NOW, before
+    # any index lock is taken. Only when no pointer and no sidecar exist yet
+    # (shared ingest already did this once; don't back up again).
+    if (not os.path.lexists(os.path.join(data_dir, 'current.json'))
+            and not os.path.exists(os.path.join(data_dir, 'notes.json'))
+            and os.path.exists(os.path.join(data_dir, 'conversations.json'))):
+        notes_store.load_notes(data_dir)
+        notes_store.backup_notes(data_dir)
 
-    print(f"Pipeline output saved to {data_dir}/", file=sys.stderr)
+    records = [{k: v for k, v in conv.items()
+                if k not in ('user_messages', 'notes')}
+               for conv in conversations]
+
+    # Correct recorded stats to the actual vectors/identity: a known model
+    # name (or 'unknown'), never an inherited hardcoded default. Synthetic
+    # graphs that carry no such stats are left untouched.
+    graph = dict(graph_data)
+    stats = graph.get('stats')
+    if isinstance(stats, dict):
+        stats = dict(stats)
+        if 'embeddingDim' in stats:
+            stats['embeddingDim'] = int(embeddings.shape[1])
+        if 'embeddingModel' in stats:
+            model = (embedding_identity or {}).get('model')
+            stats['embeddingModel'] = model or 'unknown'
+        graph['stats'] = stats
+
+    snapshot = publish_generation(
+        data_dir, records, embeddings, graph,
+        chunk_embeddings, chunk_to_conv,
+        expected_generation=expected_generation,
+        embedding_identity=embedding_identity)
+    print(f"Published generation {snapshot.token} under {data_dir}/",
+          file=sys.stderr)
+    return snapshot

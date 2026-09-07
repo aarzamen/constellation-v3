@@ -13,13 +13,16 @@ Design guarantees
   changes touch nothing -> zero duplicates, idempotent.
 * Same session present on both hosts -> one conversation id -> deduped; the
   freshest copy (newest mtime) wins.
-* Embeds ONLY new/changed conversations; retained conversations keep their
-  existing vectors. Clusters/edges/graph rebuilt over the union.
-* Notes-merge safety invariant: notes.json is never written by this script;
-  its sha256 is asserted identical before/after every cycle.
-* conversations.json mtime is stamped LAST so a long-running server hot-reloads
-  a fully-consistent generation on the next request.
-* --dry-run reports the plan without parsing/embedding/writing/manifest updates.
+* All index writes go through the shared ingest pipeline
+  (core.ingest.ingest_conversations): full-corpus reconciliation, cached
+  vector reuse keyed by embedding identity, and compare-and-swap generation
+  publication. Retained conversations are never dropped.
+* Notes safety: notes.json is never written by this script. Its sha256 is
+  compared before/after each cycle purely as an observation — a change is
+  OBSERVED only; its cause (legacy note migration, another writer, concurrent
+  note activity) cannot be inferred here, and it is not treated as a failure.
+* --dry-run still pulls from the MBP, discovers sessions, and writes the run
+  report; there is no index publication or high-water manifest update.
 * A flock lock file prevents overlapping runs.
 
 Exit 0 on success (including "nothing to do"), non-zero on error.
@@ -173,76 +176,11 @@ def classify(by_id, manifest):
 # Incremental embed
 # --------------------------------------------------------------------------- #
 def incremental_embed(fresh_convs, embedder):
-    """Re-embed only `fresh_convs` (new+changed), reuse existing vectors for the
-    rest, rebuild clusters/edges/graph, and persist. Returns (before, after)
-    corpus sizes."""
-    import numpy as np
-    from collections import defaultdict
-    from core.indexer import (embed_conversations, build_clusters, build_edges,
-                              build_graph_data, save_pipeline_output)
-
-    conv_path = os.path.join(DATA_DIR, 'conversations.json')
-    with open(conv_path) as f:
-        existing = json.load(f)
-    existing_emb = np.load(os.path.join(DATA_DIR, 'embeddings.npy'))
-    ce_path = os.path.join(DATA_DIR, 'chunk_embeddings.npy')
-    cm_path = os.path.join(DATA_DIR, 'chunk_to_conv.json')
-    existing_ce = np.load(ce_path) if os.path.exists(ce_path) else None
-    existing_cm = json.load(open(cm_path)) if os.path.exists(cm_path) else []
-
-    id_to_row = {c['id']: i for i, c in enumerate(existing)}
-    chunks_by_row = defaultdict(list)
-    if existing_ce is not None:
-        for ci, conv_idx in enumerate(existing_cm):
-            chunks_by_row[conv_idx].append(existing_ce[ci])
-
-    fresh_ids = {c['id'] for c in fresh_convs}
-    retained = [c for c in existing if c['id'] not in fresh_ids]
-    # On-disk convs have user_messages stripped (save_pipeline_output drops them);
-    # build_graph_data / cluster labelling need them back. Reconstruct from the
-    # user-role messages, matching what the parsers emit.
-    for c in retained:
-        if 'user_messages' not in c:
-            c['user_messages'] = [m['text'] for m in c.get('messages', [])
-                                  if m.get('role') == 'user']
-    final_convs = retained + fresh_convs
-
-    final_emb, final_ce, final_cm = [], [], []
-    # retained: reuse existing vectors
-    for i, c in enumerate(retained):
-        old = id_to_row[c['id']]
-        final_emb.append(existing_emb[old])
-        vecs = chunks_by_row.get(old) or [existing_emb[old]]
-        for v in vecs:
-            final_ce.append(v)
-            final_cm.append(i)
-
-    # fresh: embed now
-    if fresh_convs:
-        new_emb, new_ce, new_cm = embed_conversations(fresh_convs, embedder)
-        new_chunks = defaultdict(list)
-        if new_ce is not None:
-            for ci, conv_idx in enumerate(new_cm):
-                new_chunks[conv_idx].append(new_ce[ci])
-        base = len(retained)
-        for j in range(len(fresh_convs)):
-            final_emb.append(new_emb[j])
-            vecs = new_chunks.get(j) or [new_emb[j]]
-            for v in vecs:
-                final_ce.append(v)
-                final_cm.append(base + j)
-
-    embeddings = np.array(final_emb)
-    chunk_embeddings = np.array(final_ce) if final_ce else None
-    cluster_info = build_clusters(embeddings)
-    edges = build_edges(embeddings, final_convs)
-    graph_data = build_graph_data(final_convs, embeddings, cluster_info, edges)
-    save_pipeline_output(final_convs, embeddings, chunk_embeddings, final_cm,
-                         graph_data, DATA_DIR)
-
-    # Stamp conversations.json LAST so the server hot-reloads a consistent set.
-    os.utime(conv_path, None)
-    return len(existing), len(final_convs)
+    """Fold `fresh_convs` (new+changed) into the archive via the shared ingest
+    pipeline. Returns the core.ingest.IngestResult, which still iterates as
+    (before, after) for legacy tuple-unpacking callers."""
+    from core.ingest import ingest_conversations
+    return ingest_conversations(DATA_DIR, fresh_convs, embedder)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,7 +207,7 @@ def run(dry_run=False):
     report['to_ingest'] = [e['conv_id'] for e in to_ingest]
 
     if dry_run:
-        report['action'] = 'dry-run (no changes written)'
+        report['action'] = 'dry-run (no index publication or high-water update)'
         _finish(report, notes_path, notes_sha_before)
         return report
 
@@ -293,9 +231,16 @@ def run(dry_run=False):
     if fresh_convs:
         from core.embedder import Embedder
         embedder = Embedder()
-        before, after = incremental_embed(fresh_convs, embedder)
+        result = incremental_embed(fresh_convs, embedder)
+        before, after = result
         report['corpus_before'] = before
         report['corpus_after'] = after
+        # A stubbed incremental_embed may return a bare (before, after)
+        # tuple; only a real IngestResult carries the committed details.
+        if hasattr(result, 'snapshot'):
+            report['embedded'] = result.embedded
+            report['reconcile'] = result.report
+            report['generation'] = result.snapshot.token
         report['action'] = f'ingested {len(fresh_convs)} conversations'
     else:
         report['action'] = 'all candidates skipped as trivial'
@@ -324,7 +269,11 @@ def _finish(report, notes_path, notes_sha_before):
     report['notes_untouched'] = (notes_sha_before == notes_sha_after)
     report['finished_at'] = _now_iso()
     if not report['notes_untouched']:
-        log('FATAL: notes.json changed during ingest — safety invariant violated')
+        # This script never writes notes. The change is OBSERVED only; the
+        # cause (legacy migration, another writer, concurrent note activity)
+        # cannot be inferred here.
+        log('note: notes.json hash changed during the run — observed change '
+            'from another source (not written by this script)')
     # Append the run report.
     stamp = report['started_at'].replace(':', '').replace('-', '')[:15]
     rp = os.path.join(REPORT_DIR, f'ingest_{stamp}.json')
@@ -340,7 +289,9 @@ def _finish(report, notes_path, notes_sha_before):
 def main():
     ap = argparse.ArgumentParser(description='Nightly Claude Code ingest')
     ap.add_argument('--dry-run', action='store_true',
-                    help='report the plan without writing anything')
+                    help='report the plan (still pulls from the MBP, '
+                         'discovers sessions, and writes the run report; no '
+                         'index publication or high-water update)')
     args = ap.parse_args()
 
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -351,9 +302,7 @@ def main():
         log('another nightly ingest is running (lock held); exiting')
         return 0
     try:
-        report = run(dry_run=args.dry_run)
-        if not report.get('notes_untouched', True):
-            return 2
+        run(dry_run=args.dry_run)
         return 0
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)

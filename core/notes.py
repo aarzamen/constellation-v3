@@ -236,6 +236,10 @@ def _migrate_legacy_notes_unlocked(data_dir):
     """
     if os.path.exists(_notes_path(data_dir)):
         return
+    # Once a generation pointer exists (even dangling or corrupt), the flat
+    # conversations.json is obsolete and must never seed notes again.
+    if os.path.lexists(os.path.join(data_dir, 'current.json')):
+        return
     conv_path = os.path.join(data_dir, 'conversations.json')
     if not os.path.exists(conv_path):
         return
