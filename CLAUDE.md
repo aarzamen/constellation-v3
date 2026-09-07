@@ -244,7 +244,7 @@ The MCP server (`server/mcp_server.py`) exposes Constellation as a tool-use memo
 - Notes are persisted in a **sidecar file** (`data/notes.json`), separate from `conversations.json`
 - Each note stores `{text, created_at, note_id}` with a UTC ISO timestamp and 8-char hex ID
 - Notes **survive pipeline rebuilds** including `--reembed` — the sidecar is never overwritten by the pipeline
-- Atomic writes via `os.replace` prevent partial writes
+- Every mutation holds a cross-process advisory lock (`fcntl.flock` on `data/notes.lock`) for its whole read-modify-replace, then publishes via a unique fsynced temp file and `os.replace` — concurrent writers serialize instead of losing writes (macOS/Linux)
 - Legacy notes in `conversations.json` are automatically migrated to the sidecar on first load
 - Use `delete_conversation_note` with the `note_id` to remove a note (no update — delete and re-add)
 
@@ -291,7 +291,7 @@ Claude Code can also use Constellation as an MCP server. Add to `.claude/setting
 }
 ```
 
-Both Claude Desktop and Claude Code can run simultaneously — each spawns its own subprocess with no port conflicts. The only shared state is the `data/` directory: reads are safe, and note writes use atomic file replacement (`os.replace`) so concurrent writes are safe on POSIX systems.
+Both Claude Desktop and Claude Code can run simultaneously — each spawns its own subprocess with no port conflicts. The only shared state is the `data/` directory: reads are safe, and every note mutation holds a cross-process advisory lock (`fcntl.flock` on `data/notes.lock`) across its entire read-modify-replace, so simultaneous writers serialize instead of overwriting each other. Atomic replacement alone is not enough — two writers could each read the same snapshot and the second `os.replace` would discard the first's note. Pipeline rebuilds (including `--reembed`) back up the sidecar and then leave it untouched, so notes deleted or added mid-rebuild stick. macOS/Linux only.
 
 **Usage from a coding agent**: A coding agent can use `search_conversations` to find past discussions about specific libraries, patterns, or debugging sessions. `list_conversations` lets it browse recent conversations for context without needing a search query. `get_stats` tells it how much memory is available and the date range covered. Notes can be added to conversations to mark important findings or tag conversations for follow-up.
 
