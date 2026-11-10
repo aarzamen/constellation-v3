@@ -42,6 +42,9 @@ launch.py
     ├── core/math_utils.py      → Pure numpy: kmeans++, silhouette, cosine sim, PCA
     ├── core/lexical.py         → BM25 inverted index (pure Python)
     ├── core/notes.py           → Sidecar note persistence (data/notes.json)
+    ├── core/storage.py         → Generation-based index storage (CAS pointer)
+    ├── core/reconcile.py       → Pure union-preserving conversation reconciliation
+    ├── core/ingest.py          → Shared ingest pipeline (all import adapters)
     ├── core/logger.py          → Structured logging (JSON file + stderr)
     ├── core/config.py          → YAML config management
     │
@@ -146,6 +149,15 @@ API endpoints:
 - **MCP over stdout** — `mcp_server.py` uses stdio; ALL print statements MUST go to `sys.stderr` to avoid corrupting the JSON-RPC protocol
 - **Chunk-level embeddings** — user messages are chunked (~150 words) and individually embedded; search operates on chunks then maps back to conversations
 
+## Index Storage and Import Model
+
+- **Generation-based storage** (`core/storage.py`): every publish writes an immutable directory under `data/generations/<id>/` (conversations, vectors, graph, SHA256 manifest) and atomically switches the `data/current.json` pointer via compare-and-swap under `data/index.lock`. A stale writer gets `StaleGenerationError` instead of clobbering concurrent work. Old generations are retained, not deleted. Flat root artifacts are read only as a legacy fallback when no pointer exists.
+- **Shared ingest** (`core/ingest.py`): ALL import paths — `launch.py`, `scripts/nightly_ingest.py`, `scripts/ingest_openai_export.py`, `scripts/sweep_ingest.py` — pass their FULL parsed candidate set through `ingest_conversations`. Reconciliation (`core/reconcile.py`) preserves the union: records absent from a source are retained (absence is never treated as deletion), longer histories extend, shorter ones are stale no-ops, and divergent histories become deterministic revision records with `revision_of` provenance.
+- **Vector cache by model identity**: cached vectors are reused only when the snapshot's recorded embedding identity (model/policy/revision) matches the current embedder and the exact embedding input is unchanged; unknown or changed identity re-embeds.
+- **Notes sidecar stays at the data-dir root** (`data/notes.json`), outside generations. On the first legacy-serializer publication the pipeline migrates legacy in-`conversations.json` notes into the sidecar (with a backup) before switching the pointer; after that it leaves the sidecar alone and never merges stale notes back. Adapter note-hash checks are observations only — a hash change is observed, and its cause (that migration, another writer, or concurrent note activity) cannot be inferred by the adapter; it is not a failure.
+- **Embedding identity verification**: generated semantic queries are rejected when the embedder's model/revision cannot be verified (e.g. when browsing/network resolution is available but the identity doesn't match the stored provenance). Stored model provenance is retained in the snapshot; a full legacy re-embed is required before the vector cache is treated as verified. Current-generation readers pin exactly one published state for the duration of a read.
+- **Hot reload**: readers detect a new generation via the pointer token (`read_generation_token`). All cooperating readers and writers (server, MCP, helper, scripts) must be upgraded to the generation-aware storage API before this layout rolls out — a legacy flat-file writer racing a generation writer is unsafe.
+
 ## Common Development Commands
 
 ```bash
@@ -243,8 +255,8 @@ The MCP server (`server/mcp_server.py`) exposes Constellation as a tool-use memo
 - Notes are **append-only metadata** — they do not alter embeddings, clusters, or graph data
 - Notes are persisted in a **sidecar file** (`data/notes.json`), separate from `conversations.json`
 - Each note stores `{text, created_at, note_id}` with a UTC ISO timestamp and 8-char hex ID
-- Notes **survive pipeline rebuilds** including `--reembed` — the sidecar is never overwritten by the pipeline
-- Atomic writes via `os.replace` prevent partial writes
+- Notes **survive pipeline rebuilds** including `--reembed` — aside from the one-time legacy migration (with backup) on the first legacy-serializer publication, the pipeline never writes the sidecar
+- Every mutation holds a cross-process advisory lock (`fcntl.flock` on `data/notes.lock`) for its whole read-modify-replace, then publishes via a unique fsynced temp file and `os.replace` — concurrent writers serialize instead of losing writes (macOS/Linux)
 - Legacy notes in `conversations.json` are automatically migrated to the sidecar on first load
 - Use `delete_conversation_note` with the `note_id` to remove a note (no update — delete and re-add)
 
@@ -291,7 +303,7 @@ Claude Code can also use Constellation as an MCP server. Add to `.claude/setting
 }
 ```
 
-Both Claude Desktop and Claude Code can run simultaneously — each spawns its own subprocess with no port conflicts. The only shared state is the `data/` directory: reads are safe, and note writes use atomic file replacement (`os.replace`) so concurrent writes are safe on POSIX systems.
+Both Claude Desktop and Claude Code can run simultaneously — each spawns its own subprocess with no port conflicts. The only shared state is the `data/` directory: reads are safe, and every note mutation holds a cross-process advisory lock (`fcntl.flock` on `data/notes.lock`) across its entire read-modify-replace, so simultaneous writers serialize instead of overwriting each other. Atomic replacement alone is not enough — two writers could each read the same snapshot and the second `os.replace` would discard the first's note. Pipeline rebuilds (including `--reembed`) back up the sidecar and then leave it untouched, so notes deleted or added mid-rebuild stick. macOS/Linux only.
 
 **Usage from a coding agent**: A coding agent can use `search_conversations` to find past discussions about specific libraries, patterns, or debugging sessions. `list_conversations` lets it browse recent conversations for context without needing a search query. `get_stats` tells it how much memory is available and the date range covered. Notes can be added to conversations to mark important findings or tag conversations for follow-up.
 
@@ -348,7 +360,7 @@ The following questions were evaluated and decided. Items marked **V3.2** are be
 ### V3.2 Implementation Notes
 
 - The V3.2 spec is maintained externally and given to the coding agent at session start
-- Core principle: **do not modify `core/indexer.py`** — the sidecar approach means `save_pipeline_output` no longer needs to care about notes
+- `core/indexer.py:save_pipeline_output` now publishes an immutable generation via `core/storage.py`. It does touch notes exactly once on the legacy path: the first legacy-serializer publication migrates legacy notes into the sidecar and backs them up before the pointer switch, and never merges stale notes afterward. The old "do not modify indexer" rule applied to the V3.2 flat-file scope and no longer holds
 - New file: `core/notes.py` — standalone note persistence with atomic writes
 - Both Claude Desktop and Claude Code can use the same MCP server (each spawns its own subprocess, no conflicts)
 - No new dependencies added to `requirements.txt`

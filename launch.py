@@ -138,153 +138,46 @@ def _progress_line(stage, done, total, detail=''):
 
 def run_pipeline_embed(conversations: list, source_path: str, config: dict,
                        force_reembed: bool = False):
-    """Run the embedding pipeline on a merged list of conversations."""
+    """Reconcile and publish a merged conversation list via the shared ingest.
+
+    Thin wrapper over core.ingest.ingest_conversations, which loads the
+    current generation, reconciles the FULL retained corpus with the incoming
+    export (existing records are never dropped, even with force_reembed or
+    when a source omits them), reuses cached vectors when the embedding
+    identity and inputs match, and publishes a new generation with
+    compare-and-swap. Legacy note migration and the pre-rebuild notes backup
+    happen once inside the shared ingest.
+    """
     from core.embedder import Embedder
-    from core.indexer import (
-        embed_conversations, build_clusters, build_edges, build_graph_data, save_pipeline_output
-    )
-    from core.notes import load_notes, save_notes, merge_notes, backup_notes
-    import numpy as np
-    import json as _json
+    from core.ingest import ingest_conversations
 
     ensure_data_dir()
-
-    # Group 4 guardrail (Mar 29 data-loss fix): snapshot the notes sidecar
-    # BEFORE any rebuild work, and back it up to backups/ (retain 10).
-    preserved_notes = load_notes(DATA_DIR)
-    backup_path = backup_notes(DATA_DIR)
-    if backup_path:
-        print(f"Notes backed up to {backup_path}", file=sys.stderr)
     _progress_line('init', 0, len(conversations),
                    f'{len(conversations)} conversations')
 
-    conv_path = os.path.join(DATA_DIR, 'conversations.json')
-    emb_path = os.path.join(DATA_DIR, 'embeddings.npy')
-    chunk_emb_path = os.path.join(DATA_DIR, 'chunk_embeddings.npy')
-    chunk_map_path = os.path.join(DATA_DIR, 'chunk_to_conv.json')
+    embedder = Embedder(config.get('embedding', {}).get('model',
+                                                        'all-MiniLM-L6-v2'))
 
-    existing_convs = []
-    existing_emb = None
-    existing_chunk_emb = None
-    existing_chunk_map = []
+    def on_embed_progress(done, total):
+        _progress_line('embedding', done, total)
 
-    use_cache = not force_reembed and os.path.exists(conv_path) and os.path.exists(emb_path)
-
-    if use_cache:
-        print("Loading existing index for incremental processing...")
-        with open(conv_path, 'r') as f:
-            existing_convs = _json.load(f)
-        existing_emb = np.load(emb_path)
-        if os.path.exists(chunk_emb_path) and os.path.exists(chunk_map_path):
-            existing_chunk_emb = np.load(chunk_emb_path)
-            with open(chunk_map_path, 'r') as f:
-                existing_chunk_map = _json.load(f)
-
-    old_id_to_idx = {c['id']: i for i, c in enumerate(existing_convs)}
-
-    to_embed = []
-    for conv in conversations:
-        if not use_cache or conv['id'] not in old_id_to_idx:
-            to_embed.append(conv)
-
-    if not to_embed and use_cache:
-        print("No new conversations found. Core graph remains unchanged.")
-        _progress_line('complete', len(conversations), len(conversations), 'cached')
-        graph_data_path = os.path.join(DATA_DIR, 'graph_data.json')
-        if os.path.exists(graph_data_path):
-            with open(graph_data_path, 'r') as f:
-                return _json.load(f)
-
-    new_emb = None
-    new_chunk_emb = None
-    new_chunk_map = []
-    if to_embed:
-        msg_count = sum(len(c['messages']) for c in to_embed)
-        total_msgs = sum(len(c.get('user_messages', c.get('messages', []))) for c in to_embed)
-        print(f"Indexing {len(to_embed)} NEW conversations \u00b7 {msg_count} messages\n")
-        _progress_line('embedding', 0, total_msgs, 'loading model')
-        embedder = Embedder(config.get('embedding', {}).get('model', 'all-MiniLM-L6-v2'))
-
-        def on_embed_progress(done, total):
-            _progress_line('embedding', done, total)
-
-        new_emb, new_chunk_emb, new_chunk_map = embed_conversations(
-            to_embed, embedder, progress_callback=on_embed_progress)
-
-    final_emb = []
-    final_chunk_emb = []
-    final_chunk_map = []
-
-    new_embed_idx = 0
-
-    old_idx_to_chunks = {}
-    if existing_chunk_emb is not None:
-        for i, conv_idx in enumerate(existing_chunk_map):
-            old_idx_to_chunks.setdefault(conv_idx, []).append(existing_chunk_emb[i])
-
-    new_idx_to_chunks = {}
-    if new_chunk_emb is not None:
-        for i, conv_idx in enumerate(new_chunk_map):
-            new_idx_to_chunks.setdefault(conv_idx, []).append(new_chunk_emb[i])
-
-    for i, conv in enumerate(conversations):
-        cid = conv['id']
-        if use_cache and cid in old_id_to_idx:
-            old_idx = old_id_to_idx[cid]
-            final_emb.append(existing_emb[old_idx])
-
-            if existing_chunk_emb is not None and old_idx in old_idx_to_chunks:
-                for chunk_vec in old_idx_to_chunks[old_idx]:
-                    final_chunk_emb.append(chunk_vec)
-                    final_chunk_map.append(i)
-            elif existing_chunk_emb is None:
-                final_chunk_emb.append(existing_emb[old_idx])
-                final_chunk_map.append(i)
-        else:
-            final_emb.append(new_emb[new_embed_idx])
-
-            if new_chunk_emb is not None and new_embed_idx in new_idx_to_chunks:
-                for chunk_vec in new_idx_to_chunks[new_embed_idx]:
-                    final_chunk_emb.append(chunk_vec)
-                    final_chunk_map.append(i)
-            elif new_chunk_emb is None:
-                final_chunk_emb.append(new_emb[new_embed_idx])
-                final_chunk_map.append(i)
-
-            new_embed_idx += 1
-
-    embeddings = np.array(final_emb)
-    chunk_embeddings = np.array(final_chunk_emb) if final_chunk_emb else None
-
-    _progress_line('clustering', 0, 1, 'building clusters')
-    print("Re-clustering and caching final graph...")
-    cluster_info = build_clusters(embeddings)
-    _progress_line('clustering', 1, 1, f"{cluster_info['k']} clusters")
-
-    _progress_line('edges', 0, 1, 'computing similarity')
-    edges = build_edges(embeddings, conversations)
-    _progress_line('edges', 1, 1, f'{len(edges)} edges')
-
-    _progress_line('saving', 0, 1, 'building graph')
-    graph_data = build_graph_data(conversations, embeddings, cluster_info, edges)
-
-    save_pipeline_output(conversations, embeddings, chunk_embeddings, final_chunk_map, graph_data, DATA_DIR)
-
-    # Group 4 guardrail: merge the pre-rebuild notes snapshot with whatever
-    # is on disk now (union by note_id — notes added mid-rebuild survive,
-    # nothing preserved is ever dropped). Atomic write via save_notes.
-    merged_notes = merge_notes(preserved_notes, load_notes(DATA_DIR))
-    if merged_notes:
-        save_notes(DATA_DIR, merged_notes)
+    result = ingest_conversations(DATA_DIR, conversations, embedder,
+                                  force_reembed=force_reembed,
+                                  progress_callback=on_embed_progress)
 
     config['source']['path'] = os.path.abspath(source_path)
     save_config(config)
 
-    _progress_line('complete', len(conversations), len(conversations),
-                   f"{graph_data['stats']['clusterCount']} clusters, {graph_data['stats']['edgeCount']} edges")
+    graph_data = result.snapshot.graph_data
+    stats = graph_data.get('stats', {}) if isinstance(graph_data, dict) else {}
+    cluster_count = stats.get('clusterCount', len(graph_data.get('clusters', [])))
+    edge_count = stats.get('edgeCount', len(graph_data.get('edges', [])))
+    _progress_line('complete', result.after, result.after,
+                   f"{cluster_count} clusters, {edge_count} edges")
     print(f"\n\u2726 Pipeline complete")
-    print(f"  {graph_data['stats']['clusterCount']} clusters")
-    print(f"  {graph_data['stats']['edgeCount']} edges")
+    print(f"  {result.after} conversations ({result.embedded} embedded)")
+    print(f"  {cluster_count} clusters")
+    print(f"  {edge_count} edges")
 
     return graph_data
 

@@ -1,12 +1,18 @@
 """REST search endpoints for Constellation.
 
 Shared logic between MCP server and HTTP API.
+
+SearchEngine reads through core.storage generations: each public operation
+captures one immutable loaded state (snapshot + derived indexes) and uses
+only that state for its whole request, so a concurrent reload can never
+mix two generations inside one response. Notes are loaded fresh per
+operation from the sidecar, outside any index state.
 """
 
-import json
-import os
-import sys
+import collections
+import threading
 import time
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -14,8 +20,73 @@ from core.config import DATA_DIR
 from core.logger import get_logger
 from core.math_utils import cosine_similarity_query
 from core.notes import load_notes, append_note, delete_note as _delete_note, get_notes_for_conversation
+from core.storage import IndexSnapshot, load_snapshot, read_generation_token
 
 logger = get_logger(__name__)
+
+# Assumed identity for legacy flat indexes that carry no recorded identity.
+LEGACY_DEFAULT_MODEL = 'all-MiniLM-L6-v2'
+
+
+@dataclass(frozen=True)
+class _SearchState:
+    """One fully built, immutable view of a loaded index generation."""
+    snapshot: IndexSnapshot
+    conversation_index: dict
+    bm25: object
+    chunk_to_local_idx: list
+    cluster_meta: dict
+    conv_cluster: dict
+
+
+def _build_state(snapshot: IndexSnapshot) -> _SearchState:
+    """Build every derived structure locally before it becomes visible."""
+    conversations = snapshot.conversations
+    conversation_index = {c['id']: c for c in conversations}
+
+    from core.lexical import BM25Index
+    bm25 = BM25Index()
+    docs = []
+    for c in conversations:
+        doc_text = c.get('name', '') + ' ' + ' '.join(
+            m.get('text', '') for m in c.get('messages', []))
+        docs.append(doc_text)
+    bm25.build(docs)
+
+    # Link each chunk vector to its local index inside the parent's
+    # user-message sequence. Rebuilt from scratch (or left empty) so a
+    # generation without chunks carries no stale chunk state.
+    chunk_to_local_idx = []
+    if snapshot.chunk_to_conv is not None:
+        counts = collections.defaultdict(int)
+        for c_idx in snapshot.chunk_to_conv:
+            chunk_to_local_idx.append(counts[c_idx])
+            counts[c_idx] += 1
+
+    cluster_meta = {}
+    clusters = snapshot.clusters
+    if isinstance(clusters, dict):
+        for cl in clusters.get('clusters', []):
+            if isinstance(cl, dict) and 'id' in cl:
+                cluster_meta[cl['id']] = cl
+
+    conv_cluster = {}
+    graph_data = snapshot.graph_data
+    if isinstance(graph_data, dict):
+        for node in graph_data.get('nodes', []):
+            conv_cluster[node['id']] = {
+                'cluster_id': node.get('cluster', 0),
+                'cluster_label': node.get('clusterLabel', ''),
+            }
+
+    return _SearchState(
+        snapshot=snapshot,
+        conversation_index=conversation_index,
+        bm25=bm25,
+        chunk_to_local_idx=chunk_to_local_idx,
+        cluster_meta=cluster_meta,
+        conv_cluster=conv_cluster,
+    )
 
 
 class SearchEngine:
@@ -23,122 +94,205 @@ class SearchEngine:
 
     def __init__(self, data_dir: str = None):
         self.data_dir = data_dir or DATA_DIR
-        self.embeddings = None
-        self.chunk_embeddings = None
-        self.chunk_to_conv = None
-        self.chunk_to_local_idx = []
-        self.conversations = None
-        self.conversation_index = {}
         self.embedder = None
-        self._loaded = False
-        self._loaded_mtime = None
+        self._state = None
+        self._reload_lock = threading.RLock()
+        self._embedder_cache = {}
+        self._embedder_lock = threading.Lock()
 
-    def _sentinel_mtime(self):
-        """mtime of conversations.json — the reload trigger. The nightly ingest
-        stamps this file LAST (os.utime) once every artifact is on disk, so a
-        bump here means the whole index generation is consistent to read."""
-        try:
-            return os.path.getmtime(os.path.join(self.data_dir, 'conversations.json'))
-        except OSError:
+    # -- backward-compatible views over the current loaded state ----------
+
+    @property
+    def conversations(self):
+        state = self._state
+        return state.snapshot.conversations if state else None
+
+    @property
+    def embeddings(self):
+        state = self._state
+        return state.snapshot.embeddings if state else None
+
+    @property
+    def chunk_embeddings(self):
+        state = self._state
+        return state.snapshot.chunk_embeddings if state else None
+
+    @property
+    def chunk_to_conv(self):
+        state = self._state
+        return state.snapshot.chunk_to_conv if state else None
+
+    @property
+    def chunk_to_local_idx(self):
+        state = self._state
+        return state.chunk_to_local_idx if state else []
+
+    @property
+    def conversation_index(self):
+        state = self._state
+        return state.conversation_index if state else {}
+
+    @property
+    def bm25(self):
+        state = self._state
+        return state.bm25 if state else None
+
+    @property
+    def cluster_meta(self):
+        state = self._state
+        return state.cluster_meta if state else {}
+
+    @property
+    def conv_cluster(self):
+        state = self._state
+        return state.conv_cluster if state else {}
+
+    @property
+    def _loaded(self):
+        return self._state is not None
+
+    @property
+    def _loaded_mtime(self):
+        # Historical name; now the loaded generation token.
+        state = self._state
+        return state.snapshot.token if state else None
+
+    # -- loading -----------------------------------------------------------
+
+    def load(self) -> _SearchState:
+        """Load (or hot-reload) the current index generation.
+
+        Reload keys off the published generation token, not file mtimes.
+        The replacement state is built completely before a single reference
+        swap; a failed load raises and leaves the previous state intact.
+        Returns the state this request should use throughout.
+        """
+        with self._reload_lock:
+            state = self._state
+            if state is not None:
+                # Cheap change check; corruption surfaces without touching
+                # the held state.
+                if read_generation_token(self.data_dir) == state.snapshot.token:
+                    return state
+            snapshot = load_snapshot(self.data_dir)
+            if snapshot is None:
+                raise FileNotFoundError(
+                    f"Data files not found in {self.data_dir}. "
+                    "Run the embedding pipeline first."
+                )
+            # The pointer may have advanced between the cheap check and the
+            # load; the snapshot's own token is authoritative.
+            new_state = _build_state(snapshot)
+            self._state = new_state
+            logger.info("Index loaded", extra={
+                'generation': snapshot.token,
+                'conversations': len(snapshot.conversations),
+                'messages': sum(len(c.get('messages', []))
+                                for c in snapshot.conversations),
+            })
+            return new_state
+
+    def get_snapshot(self) -> IndexSnapshot:
+        """Return the currently loaded IndexSnapshot, loading if needed."""
+        return self.load().snapshot
+
+    # -- embedder selection ------------------------------------------------
+
+    @staticmethod
+    def _identity_key(identity):
+        if identity is None:
             return None
+        return (identity.get('model'), identity.get('revision'),
+                identity.get('policy'))
 
-    def load(self):
-        """Load (or hot-reload) embeddings and conversation data from disk.
+    def _ensure_embedder(self, state: _SearchState = None):
+        """Return the query embedder matching the given state's identity.
 
-        Reloads transparently when conversations.json mtime advances — the
-        nightly ingest updates the corpus under a long-running server, and the
-        next request picks it up with no restart and no privileges. The
-        embedding model (self.embedder) is preserved across reloads."""
-        mtime = self._sentinel_mtime()
-        if self._loaded and mtime == self._loaded_mtime:
-            return
+        Semantic compatibility requires a verifiable identity: a generated
+        snapshot missing its identity, or missing an immutable revision,
+        cannot be safely queried and raises ValueError (reindex with an
+        identifiable model). The legacy MiniLM assumption applies only to
+        true flat legacy layouts (token 'legacy-*'). Embedders are cached
+        per identity under their own lock; an injected self.embedder is
+        honored only while its identity matches the snapshot (or, for
+        legacy indexes, when it carries no identity — the explicit testing
+        stand-in for the historical assumption). A previously constructed
+        different-model embedder is never silently reused.
+        """
+        if state is None:
+            state = self._state
+        identity = state.snapshot.embedding_identity if state else None
+        injected = self.embedder
 
-        emb_path = os.path.join(self.data_dir, 'embeddings.npy')
-        conv_path = os.path.join(self.data_dir, 'conversations.json')
+        if identity is None:
+            token = state.snapshot.token if state else None
+            if not (isinstance(token, str) and token.startswith('legacy-')):
+                raise ValueError(
+                    'index generation records no embedding identity; '
+                    'semantic search is unavailable until the index is '
+                    'rebuilt with an identifiable model')
+            # True flat legacy vectors: explicit historical assumption of
+            # the default MiniLM model. An identity-less injected embedder
+            # stands in for that assumption (tests only).
+            if injected is not None and \
+                    getattr(injected, 'embedding_identity', None) is None:
+                return injected
+            with self._embedder_lock:
+                emb = self._embedder_cache.get(None)
+                if emb is None:
+                    from core.embedder import Embedder
+                    emb = Embedder()
+                    self._embedder_cache[None] = emb
+            return emb
 
-        if not os.path.exists(emb_path) or not os.path.exists(conv_path):
-            raise FileNotFoundError(
-                f"Data files not found in {self.data_dir}. "
-                "Run the embedding pipeline first."
-            )
+        if identity.get('verified') is False:
+            raise ValueError(
+                'index embedding identity is explicitly marked unverified '
+                f'({identity.get("model")!r}); semantic compatibility '
+                'cannot be established — reindex with an identifiable '
+                'model')
 
-        # Reset per-load accumulators so a reload doesn't append onto stale state.
-        self.chunk_to_local_idx = []
+        if not identity.get('revision'):
+            raise ValueError(
+                'index embedding identity has no immutable revision '
+                f'({identity.get("model")!r}); semantic compatibility '
+                'cannot be established — reindex with an identifiable '
+                'model')
 
-        self.embeddings = np.load(emb_path)
-        with open(conv_path, 'r') as f:
-            self.conversations = json.load(f)
+        if injected is not None and \
+                getattr(injected, 'embedding_identity', None) == identity:
+            return injected
 
-        self.conversation_index = {c['id']: c for c in self.conversations}
-        
-        # Build lexical index
-        from core.lexical import BM25Index
-        self.bm25 = BM25Index()
-        docs = []
-        for c in self.conversations:
-            doc_text = c.get('name', '') + ' ' + ' '.join(m.get('text', '') for m in c.get('messages', []))
-            docs.append(doc_text)
-        self.bm25.build(docs)
+        key = self._identity_key(identity)
+        with self._embedder_lock:
+            emb = self._embedder_cache.get(key)
+            if emb is None:
+                from core.embedder import Embedder
+                emb = Embedder(model_name=identity['model'],
+                               revision=identity['revision'])
+                actual = getattr(emb, 'embedding_identity', None)
+                if actual != identity:
+                    raise ValueError(
+                        f'embedder identity mismatch: index was built with '
+                        f'{identity} but the loaded model reports {actual}')
+                self._embedder_cache[key] = emb
+        return emb
 
-        # Load chunk-level data if present (V4 enhancement)
-        # Note: 'chunks' here refers to individual user messages parsed by indexer.py
-        chunk_emb_path = os.path.join(self.data_dir, 'chunk_embeddings.npy')
-        chunk_map_path = os.path.join(self.data_dir, 'chunk_to_conv.json')
-        
-        if os.path.exists(chunk_emb_path) and os.path.exists(chunk_map_path):
-            self.chunk_embeddings = np.load(chunk_emb_path)
-            with open(chunk_map_path, 'r') as f:
-                self.chunk_to_conv = json.load(f)
-                
-            # Precompute an array linking each chunk vector to its local index inside the parent's `user_messages`
-            import collections
-            counts = collections.defaultdict(int)
-            for c_idx in self.chunk_to_conv:
-                self.chunk_to_local_idx.append(counts[c_idx])
-                counts[c_idx] += 1
+    def _identity_verified(self, identity):
+        """True only when a live embedder's reported identity matches a
+        fully pinned (revision-carrying) index identity."""
+        if identity is None or not identity.get('revision'):
+            return False
+        if identity.get('verified') is False:
+            return False
+        for cand in (self.embedder,
+                     self._embedder_cache.get(self._identity_key(identity))):
+            if cand is not None and \
+                    getattr(cand, 'embedding_identity', None) == identity:
+                return True
+        return False
 
-        # Load sidecar notes
-        self.notes = load_notes(self.data_dir)
-
-        # Load cluster metadata
-        self.cluster_meta = {}
-        clusters_path = os.path.join(self.data_dir, 'clusters.json')
-        if os.path.exists(clusters_path):
-            try:
-                with open(clusters_path, 'r') as f:
-                    clusters_data = json.load(f)
-                for cl in clusters_data.get('clusters', []):
-                    self.cluster_meta[cl['id']] = cl
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        # Build conversation-to-cluster mapping from graph_data
-        self.conv_cluster = {}
-        graph_path = os.path.join(self.data_dir, 'graph_data.json')
-        if os.path.exists(graph_path):
-            try:
-                with open(graph_path, 'r') as f:
-                    graph_data = json.load(f)
-                for node in graph_data.get('nodes', []):
-                    self.conv_cluster[node['id']] = {
-                        'cluster_id': node.get('cluster', 0),
-                        'cluster_label': node.get('clusterLabel', ''),
-                    }
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        self._loaded = True
-        self._loaded_mtime = mtime
-        logger.info("Index loaded", extra={
-            'conversations': len(self.conversations),
-            'messages': sum(len(c.get('messages', [])) for c in self.conversations),
-        })
-
-    def _ensure_embedder(self):
-        """Lazy-load the embedding model for query embedding."""
-        if self.embedder is None:
-            from core.embedder import Embedder
-            self.embedder = Embedder()
+    # -- public operations -------------------------------------------------
 
     def search(self, query: str, top_k: int = 5, provider: str = None) -> list:
         """Hybrid exact + semantic search over conversation history.
@@ -157,22 +311,25 @@ class SearchEngine:
         except (ValueError, TypeError):
             top_k = 5
 
-        self.load()
-        self._ensure_embedder()
+        state = self.load()
+        snap = state.snapshot
+        conversations = snap.conversations
+        embedder = self._ensure_embedder(state)
+        notes = load_notes(self.data_dir)
 
         t0 = time.time()
-        query_embedding = self.embedder.embed_query(query)
-        semantic_scores = cosine_similarity_query(query_embedding, self.embeddings)
-        lexical_scores = self.bm25.get_scores(query)
+        query_embedding = embedder.embed_query(query)
+        semantic_scores = cosine_similarity_query(query_embedding, snap.embeddings)
+        lexical_scores = state.bm25.get_scores(query)
 
         # Compute chunk-level (message-level) similarities
-        has_chunks = self.chunk_embeddings is not None
-        conv_best_chunk_score = np.zeros(len(self.conversations))
-        conv_best_chunk_idx = np.zeros(len(self.conversations), dtype=int) - 1
-        
+        has_chunks = snap.chunk_embeddings is not None
+        conv_best_chunk_score = np.zeros(len(conversations))
+        conv_best_chunk_idx = np.zeros(len(conversations), dtype=int) - 1
+
         if has_chunks:
-            chunk_scores = cosine_similarity_query(query_embedding, self.chunk_embeddings)
-            for i, (score, c_idx) in enumerate(zip(chunk_scores, self.chunk_to_conv)):
+            chunk_scores = cosine_similarity_query(query_embedding, snap.chunk_embeddings)
+            for i, (score, c_idx) in enumerate(zip(chunk_scores, snap.chunk_to_conv)):
                 if conv_best_chunk_idx[c_idx] == -1 or score > conv_best_chunk_score[c_idx]:
                     conv_best_chunk_score[c_idx] = score
                     conv_best_chunk_idx[c_idx] = i
@@ -180,8 +337,8 @@ class SearchEngine:
         # Reciprocal Rank Fusion (RRF) combining conversation semantic, chunk semantic, and lexical
         sem_ranks = np.argsort(semantic_scores)[::-1]
         lex_ranks = np.argsort(lexical_scores)[::-1]
-        
-        rrf_scores = np.zeros(len(self.conversations))
+
+        rrf_scores = np.zeros(len(conversations))
         k_rrf = 60
 
         for rank, idx in enumerate(sem_ranks):
@@ -203,28 +360,28 @@ class SearchEngine:
 
         results = []
         for idx in top_indices:
-            conv = self.conversations[idx]
-            
+            conv = conversations[idx]
+
             # Smart excerpt generation - pull the precise matching chunk/message text
             excerpt = ""
             if has_chunks and conv_best_chunk_idx[idx] != -1:
                 chunk_id = conv_best_chunk_idx[idx]
-                local_msg_idx = self.chunk_to_local_idx[chunk_id]
-                
+                local_msg_idx = state.chunk_to_local_idx[chunk_id]
+
                 # Reconstruct user_messages sequence on the fly
                 user_msgs = [m['text'] for m in conv.get('messages', []) if m.get('role') == 'user' and m.get('text', '').strip()]
                 if not user_msgs:
                     user_msgs = [conv.get('name', '')]
-                    
+
                 if local_msg_idx < len(user_msgs):
                     excerpt = user_msgs[local_msg_idx][:800]
-                    
+
             # Fallback if chunks are missing
             if not excerpt and conv.get('messages'):
                 excerpt = conv['messages'][0]['text'][:800]
 
-            cluster_info = self.conv_cluster.get(conv['id'], {})
-            conv_notes = self.notes.get(conv['id'], [])
+            cluster_info = state.conv_cluster.get(conv['id'], {})
+            conv_notes = notes.get(conv['id'], [])
             results.append({
                 'id': conv['id'],
                 'title': conv['name'],
@@ -256,13 +413,13 @@ class SearchEngine:
         """Retrieve full conversation by ID."""
         if not conversation_id or not str(conversation_id).strip():
             return {'error': 'Invalid conversation ID'}
-            
-        self.load()
-        conv = self.conversation_index.get(conversation_id)
+
+        state = self.load()
+        conv = state.conversation_index.get(conversation_id)
         if not conv:
             return {'error': 'Conversation not found'}
-        cluster_info = self.conv_cluster.get(conversation_id, {})
-        return {
+        cluster_info = state.conv_cluster.get(conversation_id, {})
+        result = {
             'id': conv['id'],
             'title': conv['name'],
             'date': conv.get('created_at', ''),
@@ -282,29 +439,55 @@ class SearchEngine:
             'cluster_id': cluster_info.get('cluster_id', 0),
             'cluster_label': cluster_info.get('cluster_label', 'Unknown'),
         }
+        # Optional reconciliation provenance, surfaced only when recorded.
+        for key in ('revision_of', 'model', 'inferred_grouping',
+                    'system_instruction'):
+            if key in conv:
+                result[key] = conv[key]
+        return result
 
     def get_stats(self) -> dict:
         """Return index statistics."""
-        self.load()
-        total_messages = sum(len(c.get('messages', [])) for c in self.conversations)
+        state = self.load()
+        snap = state.snapshot
+        conversations = snap.conversations
+        total_messages = sum(len(c.get('messages', [])) for c in conversations)
         dates = []
-        for c in self.conversations:
+        for c in conversations:
             ca = c.get('created_at', '')
             if ca:
                 dates.append(ca[:10])
 
         provider_counts = {}
-        for c in self.conversations:
+        for c in conversations:
             p = c.get('provider', 'claude')
             provider_counts[p] = provider_counts.get(p, 0) + 1
 
+        # Browsing/stats stay usable regardless of identity: report the
+        # actual known model name, the explicit legacy assumption for flat
+        # legacy layouts only, or 'unknown' — never a silent default.
+        identity = snap.embedding_identity
+        is_legacy = isinstance(snap.token, str) and \
+            snap.token.startswith('legacy-')
+        legacy_assumed = identity is None and is_legacy
+        if identity and identity.get('model'):
+            model = identity['model']
+        elif legacy_assumed:
+            model = LEGACY_DEFAULT_MODEL
+        else:
+            model = 'unknown'
+
         return {
-            'totalConversations': len(self.conversations),
+            'totalConversations': len(conversations),
             'totalMessages': total_messages,
             'dateRange': [min(dates), max(dates)] if dates else ['', ''],
-            'embeddingModel': 'all-MiniLM-L6-v2',
-            'embeddingDim': self.embeddings.shape[1] if self.embeddings is not None else 0,
+            'embeddingModel': model,
+            'embeddingDim': snap.embeddings.shape[1] if snap.embeddings is not None else 0,
             'providers': provider_counts,
+            'generation': snap.token,
+            'embeddingIdentity': identity,
+            'identityVerified': self._identity_verified(identity),
+            'identityLegacyAssumed': legacy_assumed,
         }
 
     def add_note(self, conversation_id: str, note_text: str) -> dict:
@@ -314,14 +497,12 @@ class SearchEngine:
         if not note_text or not str(note_text).strip():
             return {'error': 'Note text cannot be empty'}
 
-        self.load()
-        conv = self.conversation_index.get(conversation_id)
+        state = self.load()
+        conv = state.conversation_index.get(conversation_id)
         if not conv:
             return {'error': f"Conversation {conversation_id} not found."}
 
         note = append_note(self.data_dir, conversation_id, note_text)
-        # Refresh in-memory cache
-        self.notes = load_notes(self.data_dir)
 
         logger.info("Note added", extra={'conversation_id': conversation_id})
         return {
@@ -340,8 +521,6 @@ class SearchEngine:
 
         self.load()
         success = _delete_note(self.data_dir, conversation_id, note_id)
-        # Refresh in-memory cache
-        self.notes = load_notes(self.data_dir)
 
         if success:
             logger.info("Note deleted", extra={'conversation_id': conversation_id, 'note_id': note_id})
@@ -354,12 +533,13 @@ class SearchEngine:
 
     def list_conversations(self, offset=0, limit=20, sort_by="date", provider=None):
         """List conversations with pagination and optional provider filtering."""
-        self.load()
+        state = self.load()
+        notes = load_notes(self.data_dir)
 
         limit = min(max(1, int(limit)), 50)
         offset = max(0, int(offset))
 
-        convs = list(self.conversations)
+        convs = list(state.snapshot.conversations)
 
         if provider:
             convs = [c for c in convs if c.get('provider', 'claude') == provider]
@@ -376,14 +556,14 @@ class SearchEngine:
 
         items = []
         for c in page:
-            cluster_info = self.conv_cluster.get(c['id'], {})
+            cluster_info = state.conv_cluster.get(c['id'], {})
             items.append({
                 'id': c['id'],
                 'title': c.get('name', ''),
                 'date': c.get('created_at', ''),
                 'provider': c.get('provider', 'claude'),
                 'message_count': len(c.get('messages', [])),
-                'has_notes': len(self.notes.get(c['id'], [])) > 0,
+                'has_notes': len(notes.get(c['id'], [])) > 0,
                 'cluster_id': cluster_info.get('cluster_id', 0),
             })
 
@@ -410,10 +590,10 @@ class SearchEngine:
             List of recent conversations with id, title, date, message_count,
             and cluster_label.
         """
-        self.load()
+        state = self.load()
 
         n = min(max(1, int(n)), 50)
-        convs = list(self.conversations)
+        convs = list(state.snapshot.conversations)
 
         if provider:
             convs = [c for c in convs if c.get('provider', 'claude') == provider]
@@ -429,7 +609,7 @@ class SearchEngine:
 
         items = []
         for c in page:
-            cluster_info = self.conv_cluster.get(c['id'], {})
+            cluster_info = state.conv_cluster.get(c['id'], {})
             items.append({
                 'id': c['id'],
                 'title': c.get('name', ''),

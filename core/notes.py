@@ -2,60 +2,151 @@
 
 Notes are stored in data/notes.json, separate from conversations.json,
 so they survive pipeline rebuilds (--reembed).
+
+Every mutation (append/delete/save, plus the read-triggered legacy
+migration) holds a cross-process advisory lock (fcntl.flock on
+data/notes.lock) across its whole read-modify-replace, so concurrent
+writers serialize instead of overwriting each other's saves. POSIX only
+(macOS/Linux); the lock file is stable and never removed.
 """
 
+import contextlib
 import datetime
+import fcntl
 import glob
 import json
 import os
 import shutil
 import sys
+import tempfile
 import uuid
+
+
+class NotesCorruptError(ValueError):
+    """notes.json exists but is not a parseable top-level JSON object."""
 
 
 def _notes_path(data_dir):
     return os.path.join(data_dir, 'notes.json')
 
 
+def _lock_path(data_dir):
+    return os.path.join(data_dir, 'notes.lock')
+
+
 def _utc_stamp():
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 
 
-def load_notes(data_dir):
-    """Load notes from sidecar file. Returns empty dict if missing."""
+@contextlib.contextmanager
+def _notes_lock(data_dir):
+    """Exclusive cross-process advisory lock on the notes sidecar.
+
+    Callers must never nest it — flock on a second descriptor blocks even
+    within one process — which is why the _unlocked helpers exist.
+    """
+    os.makedirs(data_dir, exist_ok=True)
+    fd = os.open(_lock_path(data_dir), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _read_notes_unlocked(path):
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise NotesCorruptError(str(e)) from e
+    if not isinstance(data, dict):
+        # A wrong top-level shape would otherwise surface later as an
+        # AttributeError mid-mutation; treat it as corruption up front.
+        raise NotesCorruptError(
+            f'top-level JSON is {type(data).__name__}, expected object')
+    return data
+
+
+def _quarantine_unlocked(path, error):
+    quarantine = f'{path}.corrupt.{_utc_stamp()}'
+    try:
+        shutil.copy2(path, quarantine)
+        print(f"Warning: notes.json is corrupted ({error}); "
+              f"quarantined a copy at {quarantine}", file=sys.stderr)
+    except OSError:
+        print(f"Warning: notes.json is corrupted and could not be "
+              f"quarantined: {error}", file=sys.stderr)
+
+
+def _load_notes_unlocked(data_dir, for_mutation):
+    """Read the sidecar. Caller must hold the notes lock."""
     path = _notes_path(data_dir)
     if not os.path.exists(path):
-        # One-time migration: check conversations.json for orphaned notes
-        _migrate_legacy_notes(data_dir)
-        # Re-check after migration
+        _migrate_legacy_notes_unlocked(data_dir)
         if not os.path.exists(path):
             return {}
     try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, ValueError) as e:
-        # Quarantine the corrupted file BEFORE returning {} — otherwise the
-        # next save_notes() would silently overwrite whatever text survives
-        # in it (this exact path is how the March data loss became total).
-        quarantine = f'{path}.corrupt.{_utc_stamp()}'
-        try:
-            shutil.copy2(path, quarantine)
-            print(f"Warning: notes.json is corrupted ({e}); "
-                  f"quarantined a copy at {quarantine}", file=sys.stderr)
-        except OSError:
-            print(f"Warning: notes.json is corrupted and could not be "
-                  f"quarantined: {e}", file=sys.stderr)
+        return _read_notes_unlocked(path)
+    except NotesCorruptError as e:
+        _quarantine_unlocked(path, e)
+        if for_mutation:
+            # Refuse the mutation: a failed (or even successful) quarantine
+            # never authorizes replacing the only copy of the user's words.
+            raise
         return {}
 
 
-def save_notes(data_dir, notes_dict):
-    """Atomically write notes dict to sidecar file."""
+def _save_notes_unlocked(data_dir, notes_dict):
+    """Durable atomic publish. Caller must hold the notes lock."""
     path = _notes_path(data_dir)
-    tmp_path = path + '.tmp'
     os.makedirs(data_dir, exist_ok=True)
-    with open(tmp_path, 'w') as f:
-        json.dump(notes_dict, f, indent=2)
-    os.replace(tmp_path, path)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=data_dir, prefix='.notes-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(notes_dict, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def load_notes(data_dir):
+    """Load notes from sidecar file. Returns empty dict if missing.
+
+    A corrupt or wrongly shaped file is quarantined (best effort) and read
+    as {} for backward compatibility; mutations refuse instead of
+    overwriting it.
+    """
+    with _notes_lock(data_dir):
+        return _load_notes_unlocked(data_dir, for_mutation=False)
+
+
+def save_notes(data_dir, notes_dict):
+    """Atomically write notes dict to sidecar file.
+
+    Serialized against all other note mutations. Raises NotesCorruptError
+    rather than replacing an unparseable original, even if the quarantine
+    copy fails.
+    """
+    with _notes_lock(data_dir):
+        path = _notes_path(data_dir)
+        if os.path.exists(path):
+            try:
+                _read_notes_unlocked(path)
+            except NotesCorruptError as e:
+                _quarantine_unlocked(path, e)
+                raise
+        _save_notes_unlocked(data_dir, notes_dict)
 
 
 def merge_notes(preserved, current):
@@ -103,42 +194,52 @@ def backup_notes(data_dir, retain=10):
 
 def append_note(data_dir, conversation_id, text):
     """Add a note to a conversation. Returns the new note dict."""
-    notes = load_notes(data_dir)
-    if conversation_id not in notes:
-        notes[conversation_id] = []
-
-    note = {
-        'text': text,
-        'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        'note_id': uuid.uuid4().hex[:8],
-    }
-    notes[conversation_id].append(note)
-    save_notes(data_dir, notes)
+    with _notes_lock(data_dir):
+        notes = _load_notes_unlocked(data_dir, for_mutation=True)
+        bucket = notes.setdefault(conversation_id, [])
+        note = {
+            'text': text,
+            'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'note_id': uuid.uuid4().hex[:8],
+        }
+        bucket.append(note)
+        _save_notes_unlocked(data_dir, notes)
     return note
 
 
 def delete_note(data_dir, conversation_id, note_id):
     """Delete a note by note_id. Returns True if found and deleted."""
-    notes = load_notes(data_dir)
-    conv_notes = notes.get(conversation_id, [])
-    for i, n in enumerate(conv_notes):
-        if n.get('note_id') == note_id:
-            conv_notes.pop(i)
-            if not conv_notes:
-                del notes[conversation_id]
-            save_notes(data_dir, notes)
-            return True
+    with _notes_lock(data_dir):
+        notes = _load_notes_unlocked(data_dir, for_mutation=True)
+        conv_notes = notes.get(conversation_id, [])
+        for i, n in enumerate(conv_notes):
+            if n.get('note_id') == note_id:
+                conv_notes.pop(i)
+                if not conv_notes:
+                    del notes[conversation_id]
+                _save_notes_unlocked(data_dir, notes)
+                return True
     return False
 
 
 def get_notes_for_conversation(data_dir, conversation_id):
     """Get all notes for a conversation."""
-    notes = load_notes(data_dir)
-    return notes.get(conversation_id, [])
+    return load_notes(data_dir).get(conversation_id, [])
 
 
-def _migrate_legacy_notes(data_dir):
-    """One-time migration: pull notes from conversations.json into sidecar."""
+def _migrate_legacy_notes_unlocked(data_dir):
+    """One-time migration: pull notes from conversations.json into sidecar.
+
+    Caller must hold the notes lock. Rechecks the sidecar first: if another
+    writer created it while we waited for the lock, migrating now would
+    overwrite their just-added notes.
+    """
+    if os.path.exists(_notes_path(data_dir)):
+        return
+    # Once a generation pointer exists (even dangling or corrupt), the flat
+    # conversations.json is obsolete and must never seed notes again.
+    if os.path.lexists(os.path.join(data_dir, 'current.json')):
+        return
     conv_path = os.path.join(data_dir, 'conversations.json')
     if not os.path.exists(conv_path):
         return
@@ -147,6 +248,8 @@ def _migrate_legacy_notes(data_dir):
         with open(conv_path, 'r') as f:
             conversations = json.load(f)
     except (json.JSONDecodeError, ValueError):
+        return
+    if not isinstance(conversations, list):
         return
 
     migrated = {}
@@ -162,5 +265,5 @@ def _migrate_legacy_notes(data_dir):
                 })
 
     if migrated:
-        save_notes(data_dir, migrated)
+        _save_notes_unlocked(data_dir, migrated)
         print(f"Migrated {sum(len(v) for v in migrated.values())} legacy notes to notes.json", file=sys.stderr)

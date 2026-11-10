@@ -43,12 +43,15 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
         if path.startswith('/api/'):
             return self.handle_api_get(path, parsed)
 
-        # Serve graph data from data directory
+        # Serve graph data from the committed index generation
         if path == '/data/graph_data.json':
-            return self.serve_file(
-                os.path.join(DATA_DIR, 'graph_data.json'),
-                'application/json'
-            )
+            try:
+                snapshot = search_engine.get_snapshot()
+            except Exception as e:
+                return self.send_json({'error': str(e)}, 500)
+            if snapshot.graph_data is None:
+                return self.send_error(404)
+            return self.send_json(snapshot.graph_data)
 
         # Static files
         super().do_GET()
@@ -236,31 +239,45 @@ class ConstellationHandler(SimpleHTTPRequestHandler):
         return {'entries': entries[-n:], 'total': len(entries)}
 
     def handle_recluster(self, k):
-        """Re-cluster with a new K value and return updated graph data."""
+        """Re-cluster with a new K value and publish a new generation.
+
+        Captures one snapshot, rebuilds the graph from it, and publishes via
+        compare-and-swap against that snapshot's token. A racing writer makes
+        save_pipeline_output raise (surfaced as an error by handle_api_get)
+        rather than silently clobbering the newer generation.
+        """
+        import copy
+
         from core.indexer import (
             build_clusters, build_edges, build_graph_data, save_pipeline_output
         )
 
-        search_engine.load()
-        embeddings = search_engine.embeddings
-        conversations = search_engine.conversations
+        snapshot = search_engine.get_snapshot()
+        embeddings = snapshot.embeddings
 
-        # Re-cluster
+        # Cluster labeling reads user_messages; rebuild them from canonical
+        # messages in a working copy.
+        conversations = copy.deepcopy(snapshot.conversations)
+        for conv in conversations:
+            user_msgs = [m['text'] for m in conv.get('messages', [])
+                         if m.get('role') == 'user' and m.get('text', '').strip()]
+            conv['user_messages'] = user_msgs or [conv.get('name', '')]
+
         cluster_info = build_clusters(embeddings, k_override=k)
         edges = build_edges(embeddings, conversations)
         graph_data = build_graph_data(conversations, embeddings, cluster_info, edges)
 
-        # Save updated graph data
-        graph_path = os.path.join(DATA_DIR, 'graph_data.json')
-        with open(graph_path, 'w') as f:
-            json.dump(graph_data, f)
+        committed = save_pipeline_output(
+            snapshot.conversations, snapshot.embeddings,
+            snapshot.chunk_embeddings, snapshot.chunk_to_conv,
+            graph_data, search_engine.data_dir,
+            expected_generation=snapshot.token,
+            embedding_identity=snapshot.embedding_identity)
 
-        # Save clusters.json for consistency
-        clusters_path = os.path.join(DATA_DIR, 'clusters.json')
-        with open(clusters_path, 'w') as f:
-            json.dump({'k': k, 'clusters': graph_data.get('clusters', [])}, f, indent=2)
-
-        return graph_data
+        # The commit already succeeded; serve the committed graph directly.
+        # The engine picks up the new generation on its next request, so a
+        # failing eager reload must not turn success into an error.
+        return committed.graph_data
 
     def send_json(self, data, status=200):
         body = json.dumps(data).encode('utf-8')

@@ -13,6 +13,7 @@ from core.notebooklm_parser import parse_session_html
 from core.gemini_activity_parser import extract_entries, sessionize
 from core.aistudio_parser import parse_prompt_file
 from core.indexer import save_pipeline_output
+from core.storage import load_snapshot
 
 
 class TestNotebookLM(unittest.TestCase):
@@ -96,9 +97,12 @@ class TestSavePreservesProvenance(unittest.TestCase):
             convs = [{'id': 'a', 'name': 'n', 'created_at': '', 'provider': 'aistudio',
                       'model': 'models/gemini-2.5-pro', 'inferred_grouping': True,
                       'system_instruction': 'sys', 'messages': []}]
-            graph = {'stats': {'clusterCount': 1}, 'clusters': []}
-            save_pipeline_output(convs, np.zeros((1, 384)), None, None, graph, td)
-            saved = json.load(open(os.path.join(td, 'conversations.json')))[0]
+            graph = {'nodes': [{'id': 'a'}], 'edges': [], 'clusters': [],
+                     'stats': {'clusterCount': 1}}
+            snapshot = save_pipeline_output(convs, np.zeros((1, 384)), None,
+                                            None, graph, td)
+            self.assertIsNotNone(snapshot)
+            saved = load_snapshot(td).conversations[0]
             self.assertEqual(saved['model'], 'models/gemini-2.5-pro')
             self.assertTrue(saved['inferred_grouping'])
             self.assertEqual(saved['system_instruction'], 'sys')

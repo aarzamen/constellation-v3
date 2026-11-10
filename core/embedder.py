@@ -10,17 +10,42 @@ Clean interface for future extensibility.
 
 import numpy as np
 
+# Embedding input policy: mean-pooled non-whitespace user messages (title
+# fallback). Part of the stored embedding identity; bump on policy change.
+EMBEDDING_POLICY = 'user-messages-v1'
+
 
 class Embedder:
-    """Local embedding engine using sentence-transformers."""
+    """Local embedding engine using sentence-transformers.
 
-    def __init__(self, model_name='all-MiniLM-L6-v2'):
+    ``embedding_identity`` is always ``{'model', 'revision', 'policy'}``:
+    the model name and input policy are known provenance and are never
+    discarded. ``revision`` is the immutable resolved commit hash, or None
+    when the weights cannot be pinned (unverified — e.g. a local path whose
+    weights could change under the same name). A missing revision only
+    blocks cache reuse; it does not erase the identity.
+    """
+
+    def __init__(self, model_name='all-MiniLM-L6-v2', revision=None):
         import sys
         print(f"Loading embedding model: {model_name}...", file=sys.stderr)
         print("(First run will download ~80MB model, cached for future use)", file=sys.stderr)
         from sentence_transformers import SentenceTransformer
-        self.model = SentenceTransformer(model_name)
+        if revision is not None:
+            self.model = SentenceTransformer(model_name, revision=revision)
+        else:
+            self.model = SentenceTransformer(model_name)
+        self.model_name = model_name
         self.dim = self.model.get_sentence_embedding_dimension()
+        try:
+            commit = self.model[0].auto_model.config._commit_hash
+        except (AttributeError, IndexError, KeyError, TypeError):
+            commit = None
+        if not (isinstance(commit, str) and commit):
+            commit = None
+        self.embedding_identity = {'model': model_name,
+                                   'revision': commit,
+                                   'policy': EMBEDDING_POLICY}
         print(f"Model loaded: {model_name} ({self.dim}d)", file=sys.stderr)
 
     def embed(self, texts: list, show_progress: bool = True,
